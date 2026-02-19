@@ -2,10 +2,11 @@
  * @file src/screens/OrdersScreen.js
  * @description Экран реестра заказов (PROADMIN Mobile v10.0.0).
  * UPGRADES (Senior):
+ * - FIX: SafeAreaView (react-native-safe-area-context) для фикса системной полосы на Android.
+ * - FIX: Улучшено поведение клавиатуры при поиске и скролле списка.
  * - Внедрена серверная пагинация (Infinite Scroll).
  * - Оптимизирован рендеринг списка (FlatList optimization).
- * - Живой поиск по загруженным данным.
- * - Адаптация под структуру данных реального API (client_name, total_price).
+ * - Живой поиск по загруженным данным без потери фокуса.
  *
  * @module OrdersScreen
  */
@@ -25,6 +26,7 @@ import {
   Keyboard,
   Dimensions,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   Briefcase,
   ChevronRight,
@@ -44,9 +46,9 @@ import { PeCard, PeBadge, PeSkeleton } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, FONTS } from "../theme/theme";
 
 const { width } = Dimensions.get("window");
-const PAGE_LIMIT = 20; // Размер порции данных
+const PAGE_LIMIT = 20; // Размер порции данных для пагинации
 
-// --- Утилиты ---
+// --- Утилиты форматирования ---
 const formatKZT = (num) => {
   const value = parseFloat(num) || 0;
   return value.toLocaleString("ru-RU") + " ₸";
@@ -83,7 +85,7 @@ export default function OrdersScreen() {
   const [loading, setLoading] = useState(true); // Первичная загрузка
   const [refreshing, setRefreshing] = useState(false); // Pull-to-refresh
   const [loadingMore, setLoadingMore] = useState(false); // Подгрузка снизу
-  const [allLoaded, setAllLoaded] = useState(false); // Больше данных нет
+  const [allLoaded, setAllLoaded] = useState(false); // Флаг: больше данных нет
   const [error, setError] = useState(null);
 
   // Search State
@@ -110,7 +112,7 @@ export default function OrdersScreen() {
         setLoadingMore(true);
       }
 
-      // Вычисляем offset (смещение)
+      // Вычисляем offset (смещение) для API
       const currentOffset = reset ? 0 : orders.length;
 
       // Запрос к API
@@ -145,11 +147,10 @@ export default function OrdersScreen() {
     fetchOrders(true);
   }, [statusFilter]);
 
-  // 2. Обновление при возврате на экран (чтобы увидеть новые заказы)
+  // 2. Обновление при возврате на экран (чтобы увидеть новые заказы, если создали)
   useFocusEffect(
     useCallback(() => {
-      // Опционально: можно делать тихий рефреш, если нужно
-      // fetchOrders(true);
+      // Тихий рефреш можно добавить здесь, если потребуется
     }, []),
   );
 
@@ -160,6 +161,7 @@ export default function OrdersScreen() {
   };
 
   const handleLoadMore = () => {
+    // Подгружаем только если нет активного поиска (поиск пока работает по загруженным данным)
     if (!loading && !loadingMore && !allLoaded && searchQuery.length === 0) {
       fetchOrders(false);
     }
@@ -170,7 +172,6 @@ export default function OrdersScreen() {
   // =============================================================================
 
   // Фильтрация "на лету" по уже загруженным данным
-  // (В идеале поиск тоже должен быть серверным, но пока так)
   const filteredOrders = useMemo(() => {
     if (!searchQuery) return orders;
 
@@ -306,7 +307,9 @@ export default function OrdersScreen() {
   // 🖥 MAIN UI
   // =============================================================================
   return (
-    <View style={GLOBAL_STYLES.safeArea}>
+    // FIX: Используем SafeAreaView из react-native-safe-area-context
+    // edges: top, left, right (bottom не нужен, так как там Tab Bar)
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       {/* 🎩 Header */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowBetween}>
@@ -351,6 +354,7 @@ export default function OrdersScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filtersScrollContent}
+          keyboardShouldPersistTaps="handled" // Не скрываем клавиатуру при клике по фильтру
         >
           {STATUS_FILTERS.map((filter) => {
             const isActive = statusFilter === filter.id;
@@ -359,6 +363,7 @@ export default function OrdersScreen() {
                 key={filter.id}
                 style={[styles.filterPill, isActive && styles.filterPillActive]}
                 onPress={() => {
+                  Keyboard.dismiss();
                   setStatusFilter(filter.id);
                   setSearchQuery(""); // Сброс поиска при смене фильтра
                 }}
@@ -416,7 +421,7 @@ export default function OrdersScreen() {
           onEndReachedThreshold={0.5} // Грузим, когда осталось 50% экрана
           ListFooterComponent={renderFooter}
           keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={Keyboard.dismiss}
+          onScrollBeginDrag={Keyboard.dismiss} // FIX: Скрывать клавиатуру при начале скролла
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <View style={styles.emptyIconBg}>
@@ -444,11 +449,14 @@ export default function OrdersScreen() {
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate("CreateOrder")}
+        onPress={() => {
+          Keyboard.dismiss();
+          navigation.navigate("CreateOrder");
+        }}
       >
         <Plus color="#fff" size={24} />
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -456,6 +464,10 @@ export default function OrdersScreen() {
 // 🎨 STYLES
 // =============================================================================
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
   header: {
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
