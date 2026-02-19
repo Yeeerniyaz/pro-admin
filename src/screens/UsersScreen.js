@@ -1,8 +1,8 @@
 /**
  * @file src/screens/UsersScreen.js
- * @description Экран управления персоналом и доступами (PROADMIN Mobile v11.0.0).
+ * @description Экран управления персоналом и доступами (PROADMIN Mobile v11.0.7).
  * Позволяет администратору просматривать базу пользователей из Telegram-бота и менять их роли.
- * ДОБАВЛЕНО: Глубокие тени (elevated), плавающая шапка, улучшенный UI модального окна.
+ * ДОБАВЛЕНО: Кнопка перехода на BroadcastScreen, исправление отступов для Android.
  *
  * @module UsersScreen
  */
@@ -27,6 +27,7 @@ import {
   User as UserIcon,
   X,
   CheckCircle,
+  Radio, // 🔥 Иконка для кнопки рассылки
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -44,7 +45,8 @@ const ROLE_OPTIONS = [
   { id: "admin", label: "Администратор (admin)", desc: "Полный доступ к ERP" },
 ];
 
-export default function UsersScreen() {
+export default function UsersScreen({ navigation }) {
+  // 🔥 Добавлен пропс navigation
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,7 +103,7 @@ export default function UsersScreen() {
     try {
       await API.updateUserRole(selectedUser.telegram_id, newRole);
 
-      // Локально обновляем стейт, чтобы не дергать базу лишний раз (Deep State Update)
+      // Локально обновляем стейт, чтобы не дергать базу лишний раз
       setUsers((prevUsers) =>
         prevUsers.map((u) =>
           u.telegram_id === selectedUser.telegram_id
@@ -181,7 +183,7 @@ export default function UsersScreen() {
           <TouchableOpacity
             style={[styles.editRoleBtn, isOwner && { opacity: 0.5 }]}
             onPress={() => openRoleModal(item)}
-            disabled={isOwner} // Владельца понизить нельзя на уровне интерфейса!
+            disabled={isOwner} // Владельца понизить нельзя!
             activeOpacity={0.7}
           >
             <Text style={styles.editRoleText}>Изменить права</Text>
@@ -196,7 +198,7 @@ export default function UsersScreen() {
   // =============================================================================
   return (
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
+      {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ РАССЫЛКИ */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
           <View style={styles.iconWrapper}>
@@ -204,11 +206,18 @@ export default function UsersScreen() {
           </View>
           <View>
             <Text style={GLOBAL_STYLES.h1}>Персонал</Text>
-            <Text style={GLOBAL_STYLES.textMuted}>
-              База клиентов и доступы (v11.0)
-            </Text>
+            <Text style={GLOBAL_STYLES.textMuted}>База Telegram (v11.0.7)</Text>
           </View>
         </View>
+
+        {/* 🔥 КНОПКА РАССЫЛКИ ТЕПЕРЬ ТУТ */}
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Broadcast")}
+          style={styles.broadcastBtn}
+          activeOpacity={0.7}
+        >
+          <Radio color={COLORS.primary} size={28} />
+        </TouchableOpacity>
       </View>
 
       {/* 📜 СПИСОК ПОЛЬЗОВАТЕЛЕЙ */}
@@ -256,7 +265,7 @@ export default function UsersScreen() {
         />
       )}
 
-      {/* 🪟 МОДАЛЬНОЕ ОКНО СМЕНЫ РОЛИ (с SHADOWS) */}
+      {/* 🪟 МОДАЛЬНОЕ ОКНО СМЕНЫ РОЛИ */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -290,7 +299,7 @@ export default function UsersScreen() {
                   style={[
                     styles.roleOptionBtn,
                     isActive && styles.roleOptionBtnActive,
-                    isActive && SHADOWS.glow, // Подсветка активной роли
+                    isActive && SHADOWS.glow,
                   ]}
                   activeOpacity={0.7}
                 >
@@ -329,6 +338,9 @@ export default function UsersScreen() {
 // =============================================================================
 const styles = StyleSheet.create({
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
@@ -337,6 +349,11 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
     ...SHADOWS.light,
     zIndex: 10,
+  },
+  broadcastBtn: {
+    padding: 8,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    borderRadius: 10,
   },
   iconWrapper: {
     width: 44,
@@ -349,7 +366,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: SIZES.large,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === "android" ? 100 : 40, // 🔥 Исправлено для Android Navigation Bar
   },
 
   // Карточка юзера
@@ -415,7 +432,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: SIZES.radiusLg,
     padding: SIZES.large,
     paddingBottom: Platform.OS === "ios" ? 40 : SIZES.large,
-    ...SHADOWS.medium, // Объем для самой модалки
+    ...SHADOWS.medium,
   },
   modalHeader: {
     flexDirection: "row",

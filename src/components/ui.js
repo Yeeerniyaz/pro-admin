@@ -1,13 +1,13 @@
 /**
  * @file src/components/ui.js
- * @description Mobile UI Kit (PROADMIN React Native v11.0.0).
- * Библиотека переиспользуемых компонентов (Кнопки, Инпуты, Карточки, Баджи).
- * ДОБАВЛЕНО: Интеграция продвинутых теней (SHADOWS), эффекты свечения (Glow) и кроссплатформенные фиксы.
+ * @description Mobile UI Kit (PROADMIN React Native v11.0.4).
+ * ИСПРАВЛЕНО: PeInput оптимизирован для исключения лишних рендеров,
+ * вызывающих закрытие клавиатуры на Android.
  *
  * @module Components
  */
 
-import React, { useState } from "react";
+import React from "react";
 import {
   TouchableOpacity,
   Text,
@@ -54,7 +54,6 @@ export const PeButton = ({
     return "#ffffff";
   };
 
-  // Эффект свечения (glow) для активных элементов
   const getShadowStyle = () => {
     if (disabled || variant === "ghost" || variant === "secondary") return {};
     return SHADOWS.glow;
@@ -72,7 +71,7 @@ export const PeButton = ({
           borderWidth: 1,
           borderColor: COLORS.border,
         },
-        getShadowStyle(), // Подключаем свечение из темы
+        getShadowStyle(),
         style,
       ]}
     >
@@ -91,23 +90,19 @@ export const PeButton = ({
 };
 
 // =============================================================================
-// ✍️ 2. PE-INPUT (ТЕКСТОВОЕ ПОЛЕ)
+// ✍️ 2. PE-INPUT (ТЕКСТОВОЕ ПОЛЕ) - ИСПРАВЛЕНО
 // =============================================================================
 export const PeInput = ({ label, icon, style, ...props }) => {
-  const [isFocused, setIsFocused] = useState(false);
-
+  // Убрали useState(isFocused), чтобы избежать лишних перерисовок
   return (
     <View style={[styles.inputContainer, style]}>
       {label && <Text style={styles.inputLabel}>{label}</Text>}
-      <View
-        style={[styles.inputWrapper, isFocused && styles.inputWrapperFocused]}
-      >
+      <View style={styles.inputWrapper}>
         {icon && <View style={styles.inputIcon}>{icon}</View>}
         <TextInput
           style={[styles.input, icon && { paddingLeft: 40 }]}
           placeholderTextColor={COLORS.textMuted}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          showSoftInputOnFocus={true} // Явно разрешаем клавиатуру
           {...props}
         />
       </View>
@@ -123,7 +118,7 @@ export const PeCard = ({ children, style, elevated = false }) => {
     <View
       style={[
         elevated ? GLOBAL_STYLES.cardElevated : GLOBAL_STYLES.card,
-        elevated && SHADOWS.medium, // Глубокая тень для elevated-карточек
+        elevated && SHADOWS.medium,
         style,
       ]}
     >
@@ -175,11 +170,7 @@ export const PeBadge = ({ status, text, style }) => {
   );
 };
 
-// =============================================================================
-// 🎨 ВНУТРЕННИЕ СТИЛИ КОМПОНЕНТОВ
-// =============================================================================
 const styles = StyleSheet.create({
-  // Кнопка
   button: {
     paddingVertical: 14,
     paddingHorizontal: SIZES.large,
@@ -192,8 +183,6 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontBase,
     fontWeight: "600",
   },
-
-  // Инпут
   inputContainer: {
     marginBottom: SIZES.medium,
   },
@@ -208,10 +197,6 @@ const styles = StyleSheet.create({
     position: "relative",
     justifyContent: "center",
   },
-  inputWrapperFocused: {
-    ...SHADOWS.glow, // Свечение при фокусе
-    shadowColor: COLORS.primary,
-  },
   inputIcon: {
     position: "absolute",
     left: SIZES.small,
@@ -224,11 +209,9 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusMd,
     color: COLORS.textMain,
     fontSize: SIZES.fontBase,
-    paddingVertical: Platform.OS === "ios" ? 14 : 10, // Кроссплатформенный фикс высоты
+    paddingVertical: Platform.OS === "ios" ? 14 : 12,
     paddingHorizontal: SIZES.medium,
   },
-
-  // Бадж
   badge: {
     paddingVertical: 4,
     paddingHorizontal: 8,

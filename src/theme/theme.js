@@ -1,68 +1,52 @@
 /**
  * @file src/theme/theme.js
- * @description Design System & Theme Configuration (PROADMIN Mobile v11.0).
- * Единый источник истины для цветов, шрифтов, теней и глобальных стилей.
- * ДОБАВЛЕНО: Продвинутые тени (SHADOWS) и система слоев (Z_INDEX). Никаких удалений.
+ * @description Design System & Theme Configuration (PROADMIN Mobile v11.0.5).
+ * ДОБАВЛЕНО: SAFE_SPACING для предотвращения наложений на StatusBar и BottomBar.
  *
  * @module Theme
  */
 
-import { StyleSheet, Platform } from "react-native";
+import { StyleSheet, Platform, StatusBar } from 'react-native';
 
-// =============================================================================
-// 🎨 1. ЦВЕТОВАЯ ПАЛИТРА (COLOR TOKENS)
-// =============================================================================
 export const COLORS = Object.freeze({
-  // Фоны
-  background: "#09090b", // pe-bg-base
-  surface: "#18181b", // pe-bg-surface
-  surfaceElevated: "#27272a", // pe-bg-surface-elevated
-  surfaceHover: "#3f3f46", // pe-bg-surface-hover
-
-  // Границы
-  border: "rgba(255, 255, 255, 0.1)",
-  borderFocus: "rgba(255, 255, 255, 0.2)",
-
-  // Текст
-  textMain: "#f4f4f5",
-  textMuted: "#a1a1aa",
-  textInverse: "#09090b",
-
-  // Акценты (Семантика)
-  primary: "#3b82f6", // Синий (Кнопки, Инфо)
-  primaryHover: "#2563eb",
-  success: "#10b981", // Зеленый (Доходы, Выполнено)
-  warning: "#f59e0b", // Оранжевый (В работе, Предупреждения)
-  danger: "#ef4444", // Красный (Отказы, Расходы)
+  background: '#09090b',
+  surface: '#18181b',
+  surfaceElevated: '#27272a',
+  surfaceHover: '#3f3f46',
+  border: 'rgba(255, 255, 255, 0.1)',
+  borderFocus: 'rgba(255, 255, 255, 0.2)',
+  textMain: '#f4f4f5',
+  textMuted: '#a1a1aa',
+  textInverse: '#09090b',
+  primary: '#3b82f6',
+  primaryHover: '#2563eb',
+  success: '#10b981',
+  warning: '#f59e0b',
+  danger: '#ef4444',
 });
 
-// =============================================================================
-// 📐 2. ГЕОМЕТРИЯ И ТИПОГРАФИКА (SPACING & TYPOGRAPHY)
-// =============================================================================
 export const SIZES = Object.freeze({
-  // Отступы (Margin/Padding)
   base: 8,
   small: 12,
   medium: 16,
   large: 24,
   xlarge: 32,
-
-  // Шрифты
   fontSmall: 12,
   fontBase: 14,
   fontMedium: 16,
   fontTitle: 20,
   fontHeader: 24,
-
-  // Скругления (Border Radius)
   radiusSm: 6,
   radiusMd: 10,
   radiusLg: 16,
 });
 
-// =============================================================================
-// 🗂 3. СИСТЕМА СЛОЕВ И ТЕНЕЙ (НОВОЕ В v11.0)
-// =============================================================================
+// 🔥 Новые константы безопасных зон
+export const SAFE_SPACING = Object.freeze({
+  top: Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 44,
+  bottom: Platform.OS === 'ios' ? 34 : 10,
+});
+
 export const Z_INDEX = Object.freeze({
   base: 1,
   dropdown: 10,
@@ -74,45 +58,40 @@ export const Z_INDEX = Object.freeze({
 
 export const SHADOWS = StyleSheet.create({
   light: {
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 3,
     elevation: 2,
   },
   medium: {
-    shadowColor: "#000",
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 5,
   },
   glow: {
-    // Эффект свечения для акцентных кнопок
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 6,
-  },
+  }
 });
 
-// =============================================================================
-// 🌍 4. ГЛОБАЛЬНЫЕ СТИЛИ (GLOBAL STYLESHEET)
-// =============================================================================
 export const GLOBAL_STYLES = StyleSheet.create({
-  // Основной контейнер экрана
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
+    // 🔥 Автоматический отступ от статус-бара
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0, 
   },
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
     paddingHorizontal: SIZES.medium,
   },
-
-  // Карточки (PeCard)
   card: {
     backgroundColor: COLORS.surface,
     borderRadius: SIZES.radiusLg,
@@ -125,29 +104,25 @@ export const GLOBAL_STYLES = StyleSheet.create({
     backgroundColor: COLORS.surfaceElevated,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.medium,
-    ...SHADOWS.medium, // Подключили новые тени
+    ...SHADOWS.medium,
   },
-
-  // Заголовки
   h1: {
     fontSize: SIZES.fontHeader,
-    fontWeight: "700",
+    fontWeight: '700',
     color: COLORS.textMain,
     marginBottom: SIZES.base,
   },
   h2: {
     fontSize: SIZES.fontTitle,
-    fontWeight: "600",
+    fontWeight: '600',
     color: COLORS.textMain,
     marginBottom: SIZES.base,
   },
   h3: {
     fontSize: SIZES.fontMedium,
-    fontWeight: "600",
+    fontWeight: '600',
     color: COLORS.textMain,
   },
-
-  // Текст
   textBody: {
     fontSize: SIZES.fontBase,
     color: COLORS.textMain,
@@ -160,22 +135,18 @@ export const GLOBAL_STYLES = StyleSheet.create({
     fontSize: SIZES.fontSmall,
     color: COLORS.textMuted,
   },
-
-  // Флекс-утилиты
   rowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   rowCenter: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   center: {
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // Обратная совместимость для старых экранов (чтобы ничего не сломалось)
   shadow: SHADOWS.medium,
 });
