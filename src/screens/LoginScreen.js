@@ -1,9 +1,9 @@
 /**
  * @file src/screens/LoginScreen.js
- * @description Экран авторизации (PROADMIN Mobile v11.0.2).
- * ИСПРАВЛЕНО: Полностью переписан механизм работы с клавиатурой.
- * Android теперь использует нативный adjustResize без конфликтов с KeyboardAvoidingView.
- * Клавиатура больше не закрывается при клике.
+ * @description Экран авторизации (PROADMIN Mobile v11.0.3).
+ * ИСПРАВЛЕНО: Убит баг прыгающей клавиатуры на Android.
+ * Убрано выравнивание justifyContent: center из ScrollView (которое сбивало фокус),
+ * JSX встроен напрямую в рендер для стабильности дерева компонентов React.
  *
  * @module LoginScreen
  */
@@ -43,7 +43,6 @@ export default function LoginScreen() {
    * Обработчик нажатия кнопки "Войти"
    */
   const handleLogin = async () => {
-    // Валидация с защитой от случайных пробелов
     if (!login.trim() || !password.trim()) {
       setError("Пожалуйста, введите логин и пароль");
       return;
@@ -54,10 +53,7 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      // Отправляем запрос на сервер erp.yeee.kz
       await API.login(login, password);
-
-      // Вызываем глобальный метод из изолированного контекста
       signIn();
     } catch (err) {
       setError(err.message || "Ошибка авторизации. Проверьте данные.");
@@ -67,90 +63,80 @@ export default function LoginScreen() {
   };
 
   // =============================================================================
-  // 🧩 ВНУТРЕННИЙ КОНТЕНТ (БЕЗ ОБЕРТОК)
+  // 🖥 ГЛАВНЫЙ РЕНДЕР
   // =============================================================================
-  const renderContent = () => (
-    <ScrollView
-      contentContainerStyle={styles.scrollGrow}
-      keyboardShouldPersistTaps="always" // 🔥 ЖЕЛЕЗОБЕТОННО держит фокус на инпутах
-      showsVerticalScrollIndicator={false}
-      bounces={false}
+  return (
+    <KeyboardAvoidingView
+      style={GLOBAL_STYLES.safeArea}
+      // Для iOS нужен padding, для Android отключаем (система сдвинет сама)
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.container}>
-        {/* Декоративный фон (Glow Effect) */}
-        <View style={styles.glowBackground} />
+      <ScrollView
+        contentContainerStyle={styles.scrollGrow}
+        keyboardShouldPersistTaps="handled" // Идеально для инпутов и кнопок
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        <View style={styles.container}>
+          {/* Декоративный фон (Glow Effect) */}
+          <View style={styles.glowBackground} />
 
-        {/* Карточка входа */}
-        <PeCard elevated={true} style={styles.authCard}>
-          {/* Логотип и Заголовок */}
-          <View style={styles.headerContainer}>
-            <View style={styles.logoIcon}>
-              <Zap color="#fff" size={28} />
+          {/* Карточка входа */}
+          <PeCard elevated={true} style={styles.authCard}>
+            {/* Логотип и Заголовок */}
+            <View style={styles.headerContainer}>
+              <View style={styles.logoIcon}>
+                <Zap color="#fff" size={28} />
+              </View>
+              <Text style={GLOBAL_STYLES.h1}>ProElectric</Text>
+              <Text style={GLOBAL_STYLES.textMuted}>
+                Enterprise Mobile ERP v11.0
+              </Text>
             </View>
-            <Text style={GLOBAL_STYLES.h1}>ProElectric</Text>
-            <Text style={GLOBAL_STYLES.textMuted}>
-              Enterprise Mobile ERP v11.0
-            </Text>
-          </View>
 
-          {/* Блок вывода ошибок */}
-          {error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
+            {/* Блок вывода ошибок */}
+            {error && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            {/* Форма */}
+            <View style={styles.formContainer}>
+              <PeInput
+                label="Логин системы"
+                placeholder="Введите логин"
+                value={login}
+                onChangeText={setLogin}
+                autoCapitalize="none"
+                autoCorrect={false}
+                icon={<User color={COLORS.textMuted} size={20} />}
+              />
+
+              <PeInput
+                label="Ключ доступа"
+                placeholder="••••••••"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+                icon={<Lock color={COLORS.textMuted} size={20} />}
+              />
             </View>
-          )}
 
-          {/* Форма */}
-          <View style={styles.formContainer}>
-            <PeInput
-              label="Логин системы"
-              placeholder="Введите логин"
-              value={login}
-              onChangeText={setLogin}
-              autoCapitalize="none"
-              autoCorrect={false}
-              icon={<User color={COLORS.textMuted} size={20} />}
+            {/* Кнопка входа */}
+            <PeButton
+              title="Авторизация"
+              onPress={handleLogin}
+              loading={loading}
+              variant="primary"
+              style={styles.submitBtn}
             />
-
-            <PeInput
-              label="Ключ доступа"
-              placeholder="••••••••"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              icon={<Lock color={COLORS.textMuted} size={20} />}
-            />
-          </View>
-
-          {/* Кнопка входа */}
-          <PeButton
-            title="Авторизация"
-            onPress={handleLogin}
-            loading={loading}
-            variant="primary"
-            style={{ marginTop: SIZES.large }}
-          />
-        </PeCard>
-      </View>
-    </ScrollView>
+          </PeCard>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
-
-  // =============================================================================
-  // 🖥 ГЛАВНЫЙ РЕНДЕР (РАЗДЕЛЕНИЕ ПЛАТФОРМ)
-  // =============================================================================
-
-  // Для iOS оставляем KeyboardAvoidingView
-  if (Platform.OS === "ios") {
-    return (
-      <KeyboardAvoidingView style={GLOBAL_STYLES.safeArea} behavior="padding">
-        {renderContent()}
-      </KeyboardAvoidingView>
-    );
-  }
-
-  // 🔥 Для Android отдаем ЧИСТЫЙ View. Система сама поднимет экран без багов и закрытий.
-  return <View style={GLOBAL_STYLES.safeArea}>{renderContent()}</View>;
 }
 
 // =============================================================================
@@ -159,12 +145,15 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   scrollGrow: {
     flexGrow: 1,
-    justifyContent: "center", // Центрируем контент внутри скролла
+    // ВАЖНО: Никакого justifyContent: 'center' здесь! Это убивает фокус на Android.
   },
   container: {
-    padding: SIZES.large,
+    flex: 1,
     alignItems: "center",
-    paddingVertical: 60, // Даем пространство сверху и снизу
+    padding: SIZES.large,
+    // Вместо центрирования задаем отступы, чтобы карточка визуально была по центру
+    paddingTop: Platform.OS === "android" ? "25%" : "30%",
+    paddingBottom: 60,
   },
   glowBackground: {
     position: "absolute",
@@ -173,7 +162,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 150,
     opacity: 0.1,
-    top: "50%",
+    top: "40%",
     left: "50%",
     transform: [{ translateX: -150 }, { translateY: -150 }],
   },
@@ -213,5 +202,8 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSmall,
     fontWeight: "600",
     textAlign: "center",
+  },
+  submitBtn: {
+    marginTop: SIZES.large,
   },
 });
