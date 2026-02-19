@@ -29,7 +29,7 @@ import {
 import { API } from "../api/api";
 import { PeCard, PeBadge } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
-import { AuthContext } from "../../App"; // Подключаем глобальный контекст из корня
+import { AuthContext } from "../context/AuthContext"; // Подключаем глобальный контекст из корня
 
 // Локальный форматтер валюты (KZT)
 const formatKZT = (num) => {

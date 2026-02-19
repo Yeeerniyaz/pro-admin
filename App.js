@@ -1,20 +1,14 @@
 /**
  * @file App.js
  * @description Командный центр мобильного приложения PROADMIN (React Native v10.0.0).
- * Отвечает за инициализацию, проверку сессии (Auth Flow) и маршрутизацию (React Navigation).
- * Реализован паттерн глобального контекста авторизации (Enterprise Best Practice).
+ * Отвечает за инициализацию, проверку сессии (Auth Flow) и маршрутизацию.
+ * ИСПРАВЛЕНО: Устранены кольцевые зависимости (Require Cycles) путем выноса AuthContext.
  *
  * @module RootApp
  */
 
-import React, { useState, useEffect, createContext } from "react";
-import {
-  View,
-  ActivityIndicator,
-  StatusBar,
-  StyleSheet,
-  Text,
-} from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator, StatusBar } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -22,34 +16,16 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 // Импорт архитектуры и шлюза
 import { API } from "./src/api/api";
 import { COLORS, GLOBAL_STYLES } from "./src/theme/theme";
+import { AuthContext } from "./src/context/AuthContext"; // 🔥 Импорт чистого контекста
 
-// Импорт экранов
+// Импорт реальных экранов и навигации
 import LoginScreen from "./src/screens/LoginScreen";
-// import DashboardScreen from './src/screens/DashboardScreen'; // Раскомментируем на следующем шаге
-
-// =============================================================================
-// 🚧 ВРЕМЕННАЯ ЗАГЛУШКА ДЛЯ ДАШБОРДА (Чтобы App.js не падал до создания экрана)
-// =============================================================================
-const DashboardStub = () => {
-  const { signOut } = React.useContext(AuthContext);
-  return (
-    <View style={[GLOBAL_STYLES.safeArea, GLOBAL_STYLES.center]}>
-      <Text style={GLOBAL_STYLES.h1}>PROADMIN v10.0</Text>
-      <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: 20 }]}>
-        Загрузка модуля Dashboard...
-      </Text>
-      <Text style={{ color: COLORS.primary, padding: 10 }} onPress={signOut}>
-        [ Выйти из системы ]
-      </Text>
-    </View>
-  );
-};
+import MainTabs from "./src/navigation/MainTabs";
+import OrderDetailScreen from "./src/screens/OrderDetailScreen";
+import CreateOrderScreen from "./src/screens/CreateOrderScreen";
 
 // Инициализация навигатора
 const Stack = createNativeStackNavigator();
-
-// Создаем глобальный контекст авторизации
-export const AuthContext = createContext();
 
 export default function App() {
   // Состояния жизненного цикла приложения
@@ -77,7 +53,7 @@ export default function App() {
     verifySession();
   }, []);
 
-  // 2. Глобальные методы управления сессией (передаются через Context)
+  // 2. Глобальные методы управления сессией
   const authContextValue = {
     signIn: () => setIsAuthenticated(true),
     signOut: async () => {
@@ -118,16 +94,20 @@ export default function App() {
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {isAuthenticated ? (
               // 🟢 ЗАЩИЩЕННАЯ ЗОНА (Main App)
-              // Замени DashboardStub на DashboardScreen после его создания
-              <Stack.Screen name="Dashboard" component={DashboardStub} />
+              <>
+                <Stack.Screen name="Main" component={MainTabs} />
+                <Stack.Screen
+                  name="OrderDetail"
+                  component={OrderDetailScreen}
+                />
+                <Stack.Screen
+                  name="CreateOrder"
+                  component={CreateOrderScreen}
+                />
+              </>
             ) : (
               // 🔴 ЗОНА АВТОРИЗАЦИИ (Auth Flow)
-              <Stack.Screen
-                name="Login"
-                component={LoginScreen}
-                // Прокидываем метод signIn в параметры маршрута (как мы и написали в LoginScreen)
-                initialParams={{ onLoginSuccess: authContextValue.signIn }}
-              />
+              <Stack.Screen name="Login" component={LoginScreen} />
             )}
           </Stack.Navigator>
         </NavigationContainer>

@@ -23,7 +23,7 @@ import { User, Lock, Zap } from "lucide-react-native";
 import { API } from "../api/api";
 import { PeButton, PeInput, PeCard } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
-import { AuthContext } from "../../App"; // 🔥 Импорт глобального контекста
+import { AuthContext } from '../context/AuthContext';
 
 export default function LoginScreen() {
   // 🔥 Берем функцию авторизации из контекста, а не из параметров (Fix Warning)
