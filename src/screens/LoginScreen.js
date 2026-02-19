@@ -1,293 +1,217 @@
 /**
  * @file src/screens/LoginScreen.js
- * @description Экран авторизации (PROADMIN Mobile v10.0.0).
- * UPGRADES (Senior):
- * - FIX: Клавиатура больше не скрывается при вводе (использован ScrollView + keyboardShouldPersistTaps).
- * - FIX: Убрана белая полоса навигации Android (безопасные зоны + expo-navigation-bar).
- * - FEAT: Локальная UI-валидация полей (подсветка ошибок через PeInput).
- * - FEAT: Блокировка формы во время загрузки (предотвращение двойных кликов).
+ * @description Экран авторизации (PROADMIN Mobile v11.0.2).
+ * ИСПРАВЛЕНО: Полностью переписан механизм работы с клавиатурой.
+ * Android теперь использует нативный adjustResize без конфликтов с KeyboardAvoidingView.
+ * Клавиатура больше не закрывается при клике.
  *
  * @module LoginScreen
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useContext } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
-  Alert,
   ScrollView,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { User, Lock, Eye, EyeOff, ArrowRight } from "lucide-react-native";
-import * as NavigationBar from "expo-navigation-bar";
-// Используем SafeAreaView из библиотеки для лучшего контроля над insets на Android
-import { SafeAreaView } from "react-native-safe-area-context"; 
+import { User, Lock, Zap } from "lucide-react-native";
 
-// Импортируем компоненты, тему и контекст
-import { COLORS, SIZES, FONTS } from "../theme/theme";
-import { PeInput, PeButton } from "../components/ui";
-import { useAuth } from "../context/AuthContext";
+// Импорт нашей архитектуры
+import { API } from "../api/api";
+import { PeButton, PeInput, PeCard } from "../components/ui";
+import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
-const LoginScreen = () => {
-  const navigation = useNavigation();
-  const { login } = useAuth();
+// Строгий импорт контекста
+import { AuthContext } from "../context/AuthContext";
+
+export default function LoginScreen() {
+  const { signIn } = useContext(AuthContext);
 
   // Состояния формы
-  const [email, setEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+
+  // Состояния интерфейса
   const [loading, setLoading] = useState(false);
-  
-  // Состояние ошибок валидации
-  const [errors, setErrors] = useState({});
+  const [error, setError] = useState(null);
 
-  // ===========================================================================
-  // 🔧 ИНИЦИАЛИЗАЦИЯ (FIX БЕЛОЙ ПОЛОСЫ)
-  // ===========================================================================
-  useEffect(() => {
-    const configureNavigationBar = async () => {
-      if (Platform.OS === "android") {
-        try {
-          // Синхронизируем цвет системного бара с фоном приложения
-          await NavigationBar.setBackgroundColorAsync(COLORS.background);
-          await NavigationBar.setButtonStyleAsync("dark");
-        } catch (error) {
-          console.warn("Не удалось настроить NavigationBar:", error);
-        }
-      }
-    };
-    
-    configureNavigationBar();
-  }, []);
-
-  // ===========================================================================
-  // 🛡 ВАЛИДАЦИЯ И ОТПРАВКА
-  // ===========================================================================
-  const validateForm = () => {
-    Keyboard.dismiss();
-    let isValid = true;
-    let newErrors = {};
-
-    if (!email.trim()) {
-      newErrors.email = "Введите логин или email";
-      isValid = false;
-    }
-    
-    if (!password) {
-      newErrors.password = "Введите пароль";
-      isValid = false;
-    }
-
-    setErrors(newErrors);
-    return isValid;
-  };
-
+  /**
+   * Обработчик нажатия кнопки "Войти"
+   */
   const handleLogin = async () => {
-    // 1. Проверяем заполненность полей перед отправкой
-    if (!validateForm()) {
+    // Валидация с защитой от случайных пробелов
+    if (!login.trim() || !password.trim()) {
+      setError("Пожалуйста, введите логин и пароль");
       return;
     }
 
+    Keyboard.dismiss();
+    setError(null);
     setLoading(true);
 
     try {
-      // 2. Вызываем метод login из AuthContext (он свяжется с новым API erp.yeee.kz)
-      await login(email.trim(), password);
-      // При успешном входе AuthContext обновит стейт 'user', и App.js автоматически переключит на MainTabs
-    } catch (error) {
-      // 3. Обработка ошибки от сервера
-      Alert.alert(
-        "Ошибка авторизации",
-        error.message || "Неверный логин или пароль",
-      );
-      // Очищаем пароль при неудачной попытке для безопасности
-      setPassword("");
+      // Отправляем запрос на сервер erp.yeee.kz
+      await API.login(login, password);
+
+      // Вызываем глобальный метод из изолированного контекста
+      signIn();
+    } catch (err) {
+      setError(err.message || "Ошибка авторизации. Проверьте данные.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ===========================================================================
-  // 🖥 РЕНДЕР
-  // ===========================================================================
-  return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardView}
-      >
-        {/* FIX: Заменяем TouchableWithoutFeedback на ScrollView.
-          keyboardShouldPersistTaps="handled" решает проблему закрытия клавиатуры при вводе.
-        */}
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.contentContainer}>
-            
-            {/* Заголовок / Лого */}
-            <View style={styles.header}>
-              <View style={styles.logoContainer}>
-                <Text style={styles.logoText}>
-                  Pro<Text style={styles.logoAccent}>Electric</Text>
-                </Text>
-              </View>
-              <Text style={styles.subtitle}>
-                Добро пожаловать в систему управления
-              </Text>
+  // =============================================================================
+  // 🧩 ВНУТРЕННИЙ КОНТЕНТ (БЕЗ ОБЕРТОК)
+  // =============================================================================
+  const renderContent = () => (
+    <ScrollView
+      contentContainerStyle={styles.scrollGrow}
+      keyboardShouldPersistTaps="always" // 🔥 ЖЕЛЕЗОБЕТОННО держит фокус на инпутах
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      <View style={styles.container}>
+        {/* Декоративный фон (Glow Effect) */}
+        <View style={styles.glowBackground} />
+
+        {/* Карточка входа */}
+        <PeCard elevated={true} style={styles.authCard}>
+          {/* Логотип и Заголовок */}
+          <View style={styles.headerContainer}>
+            <View style={styles.logoIcon}>
+              <Zap color="#fff" size={28} />
             </View>
-
-            {/* Форма */}
-            <View style={styles.form}>
-              
-              {/* Поле: Логин / Email */}
-              <View style={styles.inputWrapper}>
-                <Text style={styles.label}>Логин или Email</Text>
-                <PeInput
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    if (errors.email) setErrors({ ...errors, email: null }); // Убираем ошибку при вводе
-                  }}
-                  placeholder="admin@proelectric.com"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!loading}
-                  error={errors.email} // Интеграция с UI Kit
-                  icon={<User size={20} color={COLORS.textMuted} />}
-                />
-              </View>
-
-              {/* Поле: Пароль */}
-              <View style={styles.inputWrapper}>
-                <Text style={styles.label}>Пароль</Text>
-                <PeInput
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text);
-                    if (errors.password) setErrors({ ...errors, password: null });
-                  }}
-                  placeholder="Введите пароль"
-                  secureTextEntry={!showPassword}
-                  editable={!loading}
-                  error={errors.password} // Интеграция с UI Kit
-                  icon={<Lock size={20} color={COLORS.textMuted} />}
-                  rightIcon={
-                    <TouchableOpacity
-                      onPress={() => setShowPassword(!showPassword)}
-                      disabled={loading}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} // Увеличиваем зону клика
-                    >
-                      {showPassword ? (
-                        <EyeOff size={20} color={COLORS.textMuted} />
-                      ) : (
-                        <Eye size={20} color={COLORS.textMuted} />
-                      )}
-                    </TouchableOpacity>
-                  }
-                />
-              </View>
-
-              {/* Кнопка "Забыли пароль" */}
-              <TouchableOpacity
-                style={styles.forgotPassword}
-                disabled={loading}
-                onPress={() =>
-                  Alert.alert("Информация", "Обратитесь к главному администратору системы для сброса пароля.")
-                }
-              >
-                <Text style={styles.forgotPasswordText}>Забыли пароль?</Text>
-              </TouchableOpacity>
-
-              {/* Кнопка Входа */}
-              <PeButton
-                title="Войти в систему"
-                onPress={handleLogin}
-                loading={loading}
-                disabled={loading}
-                variant="primary"
-                icon={<ArrowRight size={20} color="#fff" />}
-                fullWidth
-              />
-            </View>
-            
+            <Text style={GLOBAL_STYLES.h1}>ProElectric</Text>
+            <Text style={GLOBAL_STYLES.textMuted}>
+              Enterprise Mobile ERP v11.0
+            </Text>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-};
 
-// ===========================================================================
-// 🎨 СТИЛИ
-// ===========================================================================
+          {/* Блок вывода ошибок */}
+          {error && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          {/* Форма */}
+          <View style={styles.formContainer}>
+            <PeInput
+              label="Логин системы"
+              placeholder="Введите логин"
+              value={login}
+              onChangeText={setLogin}
+              autoCapitalize="none"
+              autoCorrect={false}
+              icon={<User color={COLORS.textMuted} size={20} />}
+            />
+
+            <PeInput
+              label="Ключ доступа"
+              placeholder="••••••••"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              icon={<Lock color={COLORS.textMuted} size={20} />}
+            />
+          </View>
+
+          {/* Кнопка входа */}
+          <PeButton
+            title="Авторизация"
+            onPress={handleLogin}
+            loading={loading}
+            variant="primary"
+            style={{ marginTop: SIZES.large }}
+          />
+        </PeCard>
+      </View>
+    </ScrollView>
+  );
+
+  // =============================================================================
+  // 🖥 ГЛАВНЫЙ РЕНДЕР (РАЗДЕЛЕНИЕ ПЛАТФОРМ)
+  // =============================================================================
+
+  // Для iOS оставляем KeyboardAvoidingView
+  if (Platform.OS === "ios") {
+    return (
+      <KeyboardAvoidingView style={GLOBAL_STYLES.safeArea} behavior="padding">
+        {renderContent()}
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // 🔥 Для Android отдаем ЧИСТЫЙ View. Система сама поднимет экран без багов и закрытий.
+  return <View style={GLOBAL_STYLES.safeArea}>{renderContent()}</View>;
+}
+
+// =============================================================================
+// 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
+// =============================================================================
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.background, // Единый фон предотвращает белые полосы
+  scrollGrow: {
+    flexGrow: 1,
+    justifyContent: "center", // Центрируем контент внутри скролла
   },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1, // Позволяет контенту центрироваться
-    justifyContent: "center",
-  },
-  contentContainer: {
-    paddingHorizontal: SIZES.padding * 1.5,
-    paddingVertical: 40,
-  },
-  header: {
-    marginBottom: 40,
+  container: {
+    padding: SIZES.large,
     alignItems: "center",
+    paddingVertical: 60, // Даем пространство сверху и снизу
   },
-  logoContainer: {
-    marginBottom: 10,
+  glowBackground: {
+    position: "absolute",
+    width: 300,
+    height: 300,
+    backgroundColor: COLORS.primary,
+    borderRadius: 150,
+    opacity: 0.1,
+    top: "50%",
+    left: "50%",
+    transform: [{ translateX: -150 }, { translateY: -150 }],
   },
-  logoText: {
-    fontFamily: FONTS.bold,
-    fontSize: 34,
-    color: COLORS.textMain, // Используем обновленный токен
+  authCard: {
+    width: "100%",
+    maxWidth: 400,
+    padding: SIZES.xlarge,
   },
-  logoAccent: {
-    color: COLORS.primary,
+  headerContainer: {
+    alignItems: "center",
+    marginBottom: SIZES.xlarge,
   },
-  subtitle: {
-    fontFamily: FONTS.regular,
-    fontSize: 16,
-    color: COLORS.textMuted,
-    textAlign: "center",
+  logoIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: SIZES.radiusLg,
+    backgroundColor: COLORS.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: SIZES.medium,
+    ...SHADOWS.glow,
   },
-  form: {
+  formContainer: {
     width: "100%",
   },
-  inputWrapper: {
-    marginBottom: 20,
+  errorBox: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    padding: SIZES.small,
+    borderRadius: SIZES.radiusMd,
+    marginBottom: SIZES.medium,
+    alignItems: "center",
   },
-  label: {
-    fontFamily: FONTS.medium,
-    fontSize: 14,
-    color: COLORS.textMain,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  forgotPassword: {
-    alignSelf: "flex-end",
-    marginBottom: 30,
-  },
-  forgotPasswordText: {
-    fontFamily: FONTS.medium,
-    fontSize: 14,
-    color: COLORS.primary,
+  errorText: {
+    color: COLORS.danger,
+    fontSize: SIZES.fontSmall,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });
-
-export default LoginScreen;

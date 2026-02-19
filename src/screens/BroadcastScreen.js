@@ -1,394 +1,263 @@
 /**
  * @file src/screens/BroadcastScreen.js
- * @description Экран управления массовыми рассылками (PROADMIN Mobile v10.0.0).
- * Позволяет отправлять уведомления пользователям Telegram-бота.
- * UPGRADES (Senior):
- * - Сегментация аудитории (Targeting).
- * - Быстрые шаблоны сообщений.
- * - История отправленных рассылок.
- * - Защита от случайной отправки (Confirm Dialog).
+ * @description Центр уведомлений и рассылок (PROADMIN Mobile v11.0.0).
+ * Интеграция с Telegram-ботом: позволяет админу делать массовые рассылки пользователям по ролям.
+ * ДОБАВЛЕНО: Глубокие тени (elevated), плавающая шапка, неоновое свечение элементов (Glow).
  *
  * @module BroadcastScreen
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   Keyboard,
-  FlatList,
+  TouchableWithoutFeedback,
+  Alert,
 } from "react-native";
 import {
+  Radio,
   Send,
   Users,
-  MessageSquare,
-  Clock,
-  CheckCircle,
-  AlertTriangle,
-  FileText,
-  UserCheck,
-  User,
+  ShieldAlert,
+  Image as ImageIcon,
 } from "lucide-react-native";
 
-// Импорт архитектуры
+// Импорт нашей архитектуры
 import { API } from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
+import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
-// Константы
-const TARGET_AUDIENCES = [
+// Конфиг аудиторий
+const TARGET_OPTIONS = [
   {
     id: "all",
-    label: "Все пользователи",
-    icon: <Users size={16} color={COLORS.textMuted} />,
+    label: "Всем (Общая)",
+    icon: <Radio color={COLORS.textMuted} size={16} />,
   },
   {
-    id: "users",
-    label: "Только клиенты",
-    icon: <User size={16} color={COLORS.textMuted} />,
+    id: "user",
+    label: "Только Клиентам",
+    icon: <Users color={COLORS.textMuted} size={16} />,
   },
   {
-    id: "staff",
-    label: "Сотрудники",
-    icon: <UserCheck size={16} color={COLORS.textMuted} />,
+    id: "manager",
+    label: "Персоналу (Мастера)",
+    icon: <ShieldAlert color={COLORS.textMuted} size={16} />,
   },
-];
-
-const TEMPLATES = [
-  {
-    id: 1,
-    text: "🛠 Уважаемые пользователи! Проводятся технические работы. Бот может быть временно недоступен.",
-  },
-  {
-    id: 2,
-    text: "👋 Добрый день! Напоминаем о необходимости проверить статус вашего заказа.",
-  },
-  { id: 3, text: "⚡️ Важная информация: обновились цены на услуги." },
-  { id: 4, text: "✅ Ваш заказ успешно выполнен. Оцените качество работы." },
 ];
 
 export default function BroadcastScreen() {
-  // UI State
+  // Стейты формы
+  const [targetRole, setTargetRole] = useState("all");
   const [message, setMessage] = useState("");
-  const [target, setTarget] = useState("all");
+  const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(true);
-
-  // Data State
-  const [history, setHistory] = useState([]);
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ИСТОРИИ
+  // 🚀 ОБРАБОТЧИК ОТПРАВКИ РАССЫЛКИ
   // =============================================================================
-  const fetchHistory = async () => {
-    try {
-      setHistoryLoading(true);
-      // Mock или реальный вызов API
-      const data = await API.getBroadcastHistory();
-      setHistory(data || []);
-    } catch (error) {
-      console.log("Ошибка загрузки истории рассылок", error);
-      // Не блокируем экран ошибкой, просто покажем пустую историю
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchHistory();
-  }, []);
-
-  // =============================================================================
-  // 🚀 ОТПРАВКА СООБЩЕНИЯ
-  // =============================================================================
-  const handleSendPress = () => {
+  const handleSendBroadcast = async () => {
     if (!message.trim()) {
-      Alert.alert("Ошибка", "Введите текст сообщения");
+      Alert.alert("Ошибка", "Текст рассылки не может быть пустым");
       return;
     }
 
-    const targetLabel = TARGET_AUDIENCES.find((t) => t.id === target)?.label;
-
+    // Защита от случайного нажатия (Confirm Dialog)
     Alert.alert(
-      "Подтверждение рассылки",
-      `Вы уверены, что хотите отправить это сообщение?\n\nАудитория: ${targetLabel}\nПолучателей: ~${history.length * 10 + 50} (расчет)`, // Mock count
+      "Подтверждение",
+      `Вы уверены, что хотите запустить рассылку?\nАудитория: ${TARGET_OPTIONS.find((t) => t.id === targetRole).label}`,
       [
         { text: "Отмена", style: "cancel" },
-        { text: "Отправить", onPress: performSend, style: "default" },
+        {
+          text: "Запустить",
+          style: "destructive",
+          onPress: executeBroadcast,
+        },
       ],
     );
   };
 
-  const performSend = async () => {
+  const executeBroadcast = async () => {
     Keyboard.dismiss();
     setLoading(true);
 
     try {
-      await API.sendBroadcast({
+      const res = await API.sendBroadcast(
         message,
-        target,
-        date: new Date().toISOString(),
-      });
+        imageUrl || null,
+        targetRole,
+      );
 
-      Alert.alert("Успех", "Рассылка поставлена в очередь");
+      // Бэкенд возвращает success и message с количеством получателей
+      Alert.alert(
+        "Рассылка запущена",
+        res.message || "Сообщения отправляются в фоновом режиме.",
+      );
+
+      // Очищаем форму после успешной отправки
       setMessage("");
-      fetchHistory(); // Обновляем список
-    } catch (error) {
-      Alert.alert("Ошибка", error.message || "Не удалось отправить рассылку");
+      setImageUrl("");
+    } catch (err) {
+      Alert.alert(
+        "Ошибка рассылки",
+        err.message || "Проверьте соединение с сервером",
+      );
     } finally {
       setLoading(false);
     }
   };
 
   // =============================================================================
-  // 🧩 РЕНДЕР ЭЛЕМЕНТОВ
+  // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
-  const renderHistoryItem = ({ item }) => (
-    <View style={styles.historyItem}>
-      <View style={styles.historyHeader}>
-        <View style={GLOBAL_STYLES.rowCenter}>
-          <Clock
-            size={12}
-            color={COLORS.textMuted}
-            style={{ marginRight: 4 }}
-          />
-          <Text style={styles.historyDate}>
-            {new Date(item.created_at).toLocaleDateString("ru-RU", {
-              day: "2-digit",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.badge,
-            {
-              backgroundColor:
-                item.target === "staff"
-                  ? COLORS.warning + "20"
-                  : COLORS.primary + "10",
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.badgeText,
-              {
-                color:
-                  item.target === "staff" ? COLORS.warning : COLORS.primary,
-              },
-            ]}
-          >
-            {TARGET_AUDIENCES.find((t) => t.id === item.target)?.label ||
-              item.target}
-          </Text>
-        </View>
-      </View>
-      <Text style={styles.historyText} numberOfLines={2}>
-        {item.message}
-      </Text>
-      <View style={styles.historyFooter}>
-        <CheckCircle
-          size={14}
-          color={COLORS.success}
-          style={{ marginRight: 4 }}
-        />
-        <Text style={styles.successText}>
-          Доставлено: {item.sent_count || 0}
-        </Text>
-      </View>
-    </View>
-  );
-
   return (
     <KeyboardAvoidingView
       style={GLOBAL_STYLES.safeArea}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      {/* 🎩 Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={GLOBAL_STYLES.h1}>Рассылка</Text>
-          <Text style={GLOBAL_STYLES.textMuted}>Уведомления пользователям</Text>
-        </View>
-        <View style={styles.headerIcon}>
-          <MessageSquare color={COLORS.primary} size={24} />
-        </View>
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* 1. Выбор аудитории */}
-        <Text style={styles.sectionTitle}>Получатели</Text>
-        <View style={styles.targetContainer}>
-          {TARGET_AUDIENCES.map((t) => {
-            const isActive = target === t.id;
-            return (
-              <TouchableOpacity
-                key={t.id}
-                onPress={() => setTarget(t.id)}
-                activeOpacity={0.7}
-                style={[styles.targetCard, isActive && styles.targetCardActive]}
-              >
-                <View
-                  style={[
-                    styles.iconCircle,
-                    isActive && { backgroundColor: COLORS.primary },
-                  ]}
-                >
-                  {React.cloneElement(t.icon, {
-                    color: isActive ? "#fff" : COLORS.textMuted,
-                  })}
-                </View>
-                <Text
-                  style={[
-                    styles.targetLabel,
-                    isActive && styles.targetLabelActive,
-                  ]}
-                >
-                  {t.label}
-                </Text>
-                {isActive && (
-                  <View style={styles.checkIcon}>
-                    <CheckCircle size={16} color={COLORS.primary} />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* 2. Ввод сообщения */}
-        <PeCard style={styles.inputCard}>
-          <Text style={styles.labelSmall}>Текст сообщения</Text>
-          <TextInput
-            style={styles.textInput}
-            multiline
-            placeholder="Введите текст рассылки..."
-            placeholderTextColor={COLORS.textMuted}
-            value={message}
-            onChangeText={setMessage}
-            textAlignVertical="top"
-          />
-
-          <View style={styles.inputFooter}>
-            <Text style={styles.charCount}>{message.length} зн.</Text>
-            {message.length === 0 && (
-              <View style={GLOBAL_STYLES.rowCenter}>
-                <AlertTriangle
-                  size={12}
-                  color={COLORS.warning}
-                  style={{ marginRight: 4 }}
-                />
-                <Text
-                  style={[GLOBAL_STYLES.textSmall, { color: COLORS.warning }]}
-                >
-                  Поле не может быть пустым
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={{ flex: 1 }}>
+          {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
+          <View style={styles.header}>
+            <View style={GLOBAL_STYLES.rowCenter}>
+              <View style={styles.headerIcon}>
+                <Radio color={COLORS.primary} size={24} />
+              </View>
+              <View>
+                <Text style={GLOBAL_STYLES.h1}>Центр уведомлений</Text>
+                <Text style={GLOBAL_STYLES.textMuted}>
+                  Управление Telegram-рассылкой
                 </Text>
               </View>
-            )}
+            </View>
           </View>
-        </PeCard>
 
-        {/* 3. Шаблоны */}
-        <View style={styles.templatesContainer}>
-          <Text style={styles.sectionTitle}>Шаблоны</Text>
+          {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
           <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipsScroll}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
           >
-            {TEMPLATES.map((tpl) => (
-              <TouchableOpacity
-                key={tpl.id}
-                style={styles.chip}
-                onPress={() => setMessage(tpl.text)}
-              >
-                <FileText
-                  size={14}
-                  color={COLORS.primary}
-                  style={{ marginRight: 6 }}
+            <PeCard elevated={true} style={{ padding: SIZES.large }}>
+              {/* 1. Выбор аудитории */}
+              <Text style={styles.sectionTitle}>1. Выберите аудиторию</Text>
+              <View style={styles.targetContainer}>
+                {TARGET_OPTIONS.map((opt) => {
+                  const isActive = targetRole === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      activeOpacity={0.7}
+                      onPress={() => setTargetRole(opt.id)}
+                      style={[
+                        styles.targetBtn,
+                        isActive && styles.targetBtnActive,
+                        isActive && SHADOWS.glow, // Подсветка активной роли
+                      ]}
+                    >
+                      {/* Клонируем иконку, чтобы покрасить ее, если она активна */}
+                      {React.cloneElement(opt.icon, {
+                        color: isActive ? COLORS.primary : COLORS.textMuted,
+                      })}
+                      <Text
+                        style={[
+                          styles.targetBtnText,
+                          isActive && styles.targetBtnTextActive,
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* 2. URL Картинки (Опционально) */}
+              <Text style={[styles.sectionTitle, { marginTop: SIZES.medium }]}>
+                2. Изображение (URL, опционально)
+              </Text>
+              <PeInput
+                value={imageUrl}
+                onChangeText={setImageUrl}
+                placeholder="https://example.com/image.jpg"
+                autoCapitalize="none"
+                autoCorrect={false}
+                icon={<ImageIcon color={COLORS.textMuted} size={18} />}
+              />
+
+              {/* 3. Текст рассылки */}
+              <Text style={styles.sectionTitle}>
+                3. Текст сообщения (поддерживает HTML)
+              </Text>
+              <View style={styles.textAreaContainer}>
+                <PeInput
+                  value={message}
+                  onChangeText={setMessage}
+                  placeholder="Введите текст рассылки. Например: <b>Внимание!</b> Скидки 20% на монтаж..."
+                  multiline={true}
+                  numberOfLines={8}
+                  style={styles.textArea}
+                  textAlignVertical="top"
                 />
-                <Text style={styles.chipText} numberOfLines={1}>
-                  {tpl.text.substring(0, 25)}...
+              </View>
+
+              {/* Инфо-блок */}
+              <View style={styles.infoBox}>
+                <Text style={GLOBAL_STYLES.textSmall}>
+                  Рассылка осуществляется через официального бота ProElectric.
+                  Доставка занимает время в зависимости от размера базы.
                 </Text>
-              </TouchableOpacity>
-            ))}
+              </View>
+
+              {/* Кнопка запуска */}
+              <PeButton
+                title="Запустить рассылку"
+                variant="primary"
+                icon={<Send color="#fff" size={18} />}
+                onPress={handleSendBroadcast}
+                loading={loading}
+                style={[styles.glowButton, { marginTop: SIZES.large }]}
+              />
+            </PeCard>
+
+            {/* Отступ для комфортного скролла над клавиатурой */}
+            <View style={{ height: 40 }} />
           </ScrollView>
         </View>
-
-        {/* 4. Кнопка отправки */}
-        <PeButton
-          title="Отправить рассылку"
-          icon={<Send size={20} color="#fff" />}
-          onPress={handleSendPress}
-          loading={loading}
-          disabled={!message.trim()}
-          style={styles.sendButton}
-        />
-
-        {/* 5. История */}
-        <View style={styles.historyContainer}>
-          <Text style={styles.sectionTitle}>История отправлений</Text>
-
-          {historyLoading ? (
-            <ActivityIndicator
-              size="small"
-              color={COLORS.primary}
-              style={{ marginTop: 20 }}
-            />
-          ) : history.length === 0 ? (
-            <View style={styles.emptyHistory}>
-              <Text style={GLOBAL_STYLES.textMuted}>История пуста</Text>
-            </View>
-          ) : (
-            // Используем map, так как мы внутри ScrollView
-            history.map((item, index) => (
-              <View key={index}>{renderHistoryItem({ item })}</View>
-            ))
-          )}
-        </View>
-
-        {/* Extra space for safe area */}
-        <View style={{ height: 40 }} />
-      </ScrollView>
+      </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 }
 
+// =============================================================================
+// 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
+// =============================================================================
 const styles = StyleSheet.create({
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+    ...SHADOWS.light,
+    zIndex: 10,
   },
   headerIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: COLORS.surfaceElevated,
-    alignItems: "center",
+    width: 44,
+    height: 44,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
     justifyContent: "center",
+    alignItems: "center",
+    marginRight: SIZES.medium,
+    ...SHADOWS.glow, // Свечение иконки в шапке
   },
   scrollContent: {
     padding: SIZES.large,
@@ -397,160 +266,59 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontBase,
     fontWeight: "700",
     color: COLORS.textMain,
-    marginBottom: 12,
-    marginTop: 8,
+    marginBottom: SIZES.small,
+    textTransform: "uppercase",
   },
 
-  // Target Selector
+  // Селектор аудитории
   targetContainer: {
-    gap: 10,
-    marginBottom: 24,
+    gap: SIZES.small,
+    marginBottom: SIZES.small,
   },
-  targetCard: {
+  targetBtn: {
     flexDirection: "row",
     alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: SIZES.medium,
+    borderRadius: SIZES.radiusMd,
     backgroundColor: COLORS.surfaceElevated,
-    padding: 12,
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: "transparent",
   },
-  targetCardActive: {
-    backgroundColor: COLORS.primary + "08",
+  targetBtnActive: {
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
     borderColor: COLORS.primary,
   },
-  iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.background,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  targetLabel: {
-    fontSize: 14,
-    color: COLORS.textMuted,
+  targetBtnText: {
+    fontSize: SIZES.fontBase,
     fontWeight: "600",
-    flex: 1,
+    color: COLORS.textMuted,
+    marginLeft: SIZES.small,
   },
-  targetLabelActive: {
+  targetBtnTextActive: {
     color: COLORS.primary,
   },
-  checkIcon: {
-    marginLeft: 8,
+
+  // Текстовая область
+  textAreaContainer: {
+    minHeight: 150,
+  },
+  textArea: {
+    minHeight: 150,
+    paddingTop: Platform.OS === "ios" ? SIZES.small : 12,
   },
 
-  // Input
-  inputCard: {
-    padding: 16,
-    marginBottom: 24,
-  },
-  labelSmall: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-    fontWeight: "700",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-  textInput: {
-    minHeight: 120,
-    color: COLORS.textMain,
-    fontSize: 16,
-    lineHeight: 24,
-    textAlignVertical: "top",
-  },
-  inputFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  charCount: {
-    fontSize: 12,
-    color: COLORS.textMuted,
+  // Инфо-блок
+  infoBox: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    padding: SIZES.medium,
+    borderRadius: SIZES.radiusSm,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.warning,
+    marginTop: SIZES.small,
   },
 
-  // Templates
-  templatesContainer: {
-    marginBottom: 24,
-  },
-  chipsScroll: {
-    marginHorizontal: -SIZES.large, // Compensate padding
-    paddingHorizontal: SIZES.large,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.surfaceElevated,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  chipText: {
-    fontSize: 13,
-    color: COLORS.textMain,
-  },
-
-  // Button
-  sendButton: {
-    marginBottom: 32,
-  },
-
-  // History
-  historyContainer: {
-    marginTop: 8,
-  },
-  historyItem: {
-    backgroundColor: COLORS.card,
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  historyHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  historyDate: {
-    fontSize: 12,
-    color: COLORS.textMuted,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  historyText: {
-    fontSize: 14,
-    color: COLORS.textMain,
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  historyFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  successText: {
-    fontSize: 12,
-    color: COLORS.success,
-    fontWeight: "600",
-  },
-  emptyHistory: {
-    alignItems: "center",
-    padding: 20,
+  glowButton: {
+    ...SHADOWS.glow,
   },
 });

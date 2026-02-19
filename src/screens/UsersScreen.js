@@ -1,16 +1,13 @@
 /**
  * @file src/screens/UsersScreen.js
- * @description Экран управления персоналом и доступами (PROADMIN Mobile v10.0.0).
- * UPGRADES (Senior):
- * - Добавлен живой поиск (Search) по всем полям.
- * - Добавлена аналитика (Stats Header) по ролям.
- * - Улучшен UI карточек и аватаров.
- * - Оптимизирована фильтрация списков.
+ * @description Экран управления персоналом и доступами (PROADMIN Mobile v11.0.0).
+ * Позволяет администратору просматривать базу пользователей из Telegram-бота и менять их роли.
+ * ДОБАВЛЕНО: Глубокие тени (elevated), плавающая шапка, улучшенный UI модального окна.
  *
  * @module UsersScreen
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -21,8 +18,7 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
-  TextInput,
-  Keyboard,
+  Platform,
 } from "react-native";
 import {
   Users,
@@ -31,15 +27,12 @@ import {
   User as UserIcon,
   X,
   CheckCircle,
-  Search,
-  Briefcase,
-  Filter,
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
-import { PeCard } from "../components/ui"; // PeBadge убран, используем кастомный для гибкости
-import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
+import { PeCard, PeBadge, PeButton } from "../components/ui";
+import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
 const ROLE_OPTIONS = [
   { id: "user", label: "Клиент (user)", desc: "Только создание заявок в боте" },
@@ -56,7 +49,6 @@ export default function UsersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
   // Стейты модалки смены роли
   const [modalVisible, setModalVisible] = useState(false);
@@ -71,7 +63,7 @@ export default function UsersScreen() {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      const data = await API.getUsers(200, 0); // Увеличили лимит загрузки для поиска
+      const data = await API.getUsers(100, 0); // Берем 100 последних пользователей
       setUsers(data || []);
     } catch (err) {
       setError(err.message || "Ошибка загрузки базы пользователей");
@@ -89,40 +81,6 @@ export default function UsersScreen() {
     setRefreshing(true);
     fetchUsers(true);
   }, []);
-
-  // =============================================================================
-  // 🔍 ПОИСК И СТАТИСТИКА (Senior Logic)
-  // =============================================================================
-
-  // Мемоизированная фильтрация (не тормозит UI при вводе)
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery) return users;
-
-    const lowerQuery = searchQuery.toLowerCase();
-    return users.filter((u) => {
-      const name = (u.first_name || "").toLowerCase();
-      const username = (u.username || "").toLowerCase();
-      const phone = (u.phone || "").toLowerCase();
-      const id = String(u.telegram_id);
-
-      return (
-        name.includes(lowerQuery) ||
-        username.includes(lowerQuery) ||
-        phone.includes(lowerQuery) ||
-        id.includes(lowerQuery)
-      );
-    });
-  }, [users, searchQuery]);
-
-  // Подсчет статистики "на лету"
-  const stats = useMemo(() => {
-    return {
-      total: users.length,
-      admins: users.filter((u) => u.role === "admin" || u.role === "owner")
-        .length,
-      managers: users.filter((u) => u.role === "manager").length,
-    };
-  }, [users]);
 
   // =============================================================================
   // 🔄 ОБРАБОТЧИК СМЕНЫ РОЛИ
@@ -143,7 +101,7 @@ export default function UsersScreen() {
     try {
       await API.updateUserRole(selectedUser.telegram_id, newRole);
 
-      // Локально обновляем стейт (Optimistic UI update)
+      // Локально обновляем стейт, чтобы не дергать базу лишний раз (Deep State Update)
       setUsers((prevUsers) =>
         prevUsers.map((u) =>
           u.telegram_id === selectedUser.telegram_id
@@ -164,58 +122,44 @@ export default function UsersScreen() {
     }
   };
 
-  // Генерация инициалов для аватара
-  const getInitials = (name) => {
-    if (!name) return "?";
-    return name.slice(0, 1).toUpperCase();
-  };
-
   // =============================================================================
-  // 🧩 РЕНДЕР КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ
+  // 🧩 РЕНДЕР КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ (FLATLIST ITEM)
   // =============================================================================
   const renderUserItem = ({ item }) => {
-    const isStaff = ["admin", "owner", "manager"].includes(item.role);
+    const isStaff =
+      item.role === "admin" || item.role === "owner" || item.role === "manager";
     const isOwner = item.role === "owner";
 
-    // Цвет бейджа в зависимости от роли
-    let badgeColor = COLORS.textMuted;
-    let badgeBg = COLORS.surfaceElevated;
-
-    if (item.role === "admin" || item.role === "owner") {
-      badgeColor = COLORS.primary;
-      badgeBg = COLORS.primary + "15";
-    } else if (item.role === "manager") {
-      badgeColor = COLORS.warning;
-      badgeBg = COLORS.warning + "15";
-    }
-
     return (
-      <PeCard style={styles.userCard}>
+      <PeCard elevated={true} style={styles.userCard}>
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
-            {/* Аватар с инициалами */}
             <View style={[styles.avatar, isStaff && styles.avatarStaff]}>
-              <Text
-                style={[styles.avatarText, isStaff && styles.avatarTextStaff]}
-              >
-                {getInitials(item.first_name)}
-              </Text>
+              {isStaff ? (
+                <Shield color={COLORS.primary} size={20} />
+              ) : (
+                <UserIcon color={COLORS.textMuted} size={20} />
+              )}
             </View>
-
-            <View style={{ flex: 1, paddingRight: 8 }}>
+            <View>
               <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>
                 {item.first_name || "Без имени"}
               </Text>
-              <Text style={GLOBAL_STYLES.textSmall} numberOfLines={1}>
-                @{item.username || "нет_username"} • {item.telegram_id}
+              <Text style={GLOBAL_STYLES.textSmall}>
+                @{item.username || "нет_username"} • ID: {item.telegram_id}
               </Text>
             </View>
           </View>
 
-          {/* Роль */}
-          <View style={[styles.roleBadge, { backgroundColor: badgeBg }]}>
-            <Text style={[styles.roleBadgeText, { color: badgeColor }]}>
-              {item.role === "owner" ? "ВЛАДЕЛЕЦ" : item.role.toUpperCase()}
+          {/* Кастомный бейдж роли */}
+          <View style={[styles.roleBadge, isStaff && styles.roleBadgeStaff]}>
+            <Text
+              style={[
+                styles.roleBadgeText,
+                isStaff && styles.roleBadgeTextStaff,
+              ]}
+            >
+              {item.role.toUpperCase()}
             </Text>
           </View>
         </View>
@@ -237,9 +181,10 @@ export default function UsersScreen() {
           <TouchableOpacity
             style={[styles.editRoleBtn, isOwner && { opacity: 0.5 }]}
             onPress={() => openRoleModal(item)}
-            disabled={isOwner}
+            disabled={isOwner} // Владельца понизить нельзя на уровне интерфейса!
+            activeOpacity={0.7}
           >
-            <Text style={styles.editRoleText}>Управление</Text>
+            <Text style={styles.editRoleText}>Изменить права</Text>
           </TouchableOpacity>
         </View>
       </PeCard>
@@ -247,63 +192,26 @@ export default function UsersScreen() {
   };
 
   // =============================================================================
-  // 🖥 ГЛАВНЫЙ РЕНДЕР
+  // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* 🎩 ШАПКА + ПОИСК */}
-      <View style={styles.headerContainer}>
-        <View style={styles.headerTop}>
+      {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
+      <View style={styles.header}>
+        <View style={GLOBAL_STYLES.rowCenter}>
+          <View style={styles.iconWrapper}>
+            <Users color={COLORS.primary} size={24} />
+          </View>
           <View>
             <Text style={GLOBAL_STYLES.h1}>Персонал</Text>
-            <Text style={GLOBAL_STYLES.textMuted}>Управление доступом</Text>
+            <Text style={GLOBAL_STYLES.textMuted}>
+              База клиентов и доступы (v11.0)
+            </Text>
           </View>
-          {/* Мини-статистика справа */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.admins}</Text>
-              <Text style={styles.statLabel}>Admin</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.managers}</Text>
-              <Text style={styles.statLabel}>Staff</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.total}</Text>
-              <Text style={styles.statLabel}>Всего</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Search Input */}
-        <View style={styles.searchWrapper}>
-          <Search
-            size={18}
-            color={COLORS.textMuted}
-            style={styles.searchIcon}
-          />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Найти по имени, ID или телефону..."
-            placeholderTextColor={COLORS.textMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            returnKeyType="search"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery("")}
-              style={styles.clearBtn}
-            >
-              <X size={16} color={COLORS.textMuted} />
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
-      {/* 📜 СПИСОК */}
+      {/* 📜 СПИСОК ПОЛЬЗОВАТЕЛЕЙ */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
@@ -311,11 +219,9 @@ export default function UsersScreen() {
           </View>
           <TouchableOpacity
             onPress={() => fetchUsers()}
-            style={styles.retryBtn}
+            style={{ marginTop: 10 }}
           >
-            <Text style={{ color: COLORS.primary, fontWeight: "600" }}>
-              Обновить базу
-            </Text>
+            <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
       ) : loading && !refreshing ? (
@@ -324,7 +230,7 @@ export default function UsersScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredUsers}
+          data={users}
           keyExtractor={(item) => item.telegram_id.toString()}
           renderItem={renderUserItem}
           contentContainerStyle={styles.listContent}
@@ -334,48 +240,36 @@ export default function UsersScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
               tintColor={COLORS.primary}
+              colors={[COLORS.primary]}
             />
           }
-          onScrollBeginDrag={Keyboard.dismiss} // Скрывать клавиатуру при скролле
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <View style={styles.emptyIconBg}>
-                <Users color={COLORS.textMuted} size={32} />
-              </View>
-              <Text style={[GLOBAL_STYLES.h3, { marginTop: 16 }]}>
-                {searchQuery ? "Ничего не найдено" : "База пуста"}
-              </Text>
-              <Text style={[GLOBAL_STYLES.textMuted, { marginTop: 8 }]}>
-                {searchQuery
-                  ? "Попробуйте изменить запрос"
-                  : "Пользователи бота появятся здесь"}
+              <Users color={COLORS.surfaceHover} size={48} />
+              <Text
+                style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}
+              >
+                База пользователей пуста
               </Text>
             </View>
           }
         />
       )}
 
-      {/* 🪟 МОДАЛЬНОЕ ОКНО */}
+      {/* 🪟 МОДАЛЬНОЕ ОКНО СМЕНЫ РОЛИ (с SHADOWS) */}
       <Modal
         visible={modalVisible}
-        animationType="fade"
+        animationType="slide"
         transparent={true}
         onRequestClose={() => setModalVisible(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setModalVisible(false)}
-        >
-          <View
-            style={styles.modalContent}
-            onStartShouldSetResponder={() => true}
-          >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={GLOBAL_STYLES.h2}>Права доступа</Text>
+                <Text style={GLOBAL_STYLES.h2}>Уровень доступа</Text>
                 <Text style={GLOBAL_STYLES.textMuted}>
-                  {selectedUser?.first_name} (@{selectedUser?.username})
+                  Для: {selectedUser?.first_name}
                 </Text>
               </View>
               <TouchableOpacity
@@ -396,33 +290,11 @@ export default function UsersScreen() {
                   style={[
                     styles.roleOptionBtn,
                     isActive && styles.roleOptionBtnActive,
+                    isActive && SHADOWS.glow, // Подсветка активной роли
                   ]}
+                  activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.roleIconBox,
-                      isActive && { backgroundColor: COLORS.primary },
-                    ]}
-                  >
-                    {roleOpt.id === "admin" ? (
-                      <Shield
-                        size={18}
-                        color={isActive ? "#fff" : COLORS.textMuted}
-                      />
-                    ) : roleOpt.id === "manager" ? (
-                      <Briefcase
-                        size={18}
-                        color={isActive ? "#fff" : COLORS.textMuted}
-                      />
-                    ) : (
-                      <UserIcon
-                        size={18}
-                        color={isActive ? "#fff" : COLORS.textMuted}
-                      />
-                    )}
-                  </View>
-
-                  <View style={{ flex: 1, marginLeft: 12 }}>
+                  <View style={{ flex: 1 }}>
                     <Text
                       style={[
                         styles.roleOptionTitle,
@@ -433,19 +305,20 @@ export default function UsersScreen() {
                     </Text>
                     <Text style={GLOBAL_STYLES.textSmall}>{roleOpt.desc}</Text>
                   </View>
-
                   {isActive && <CheckCircle color={COLORS.primary} size={20} />}
                 </TouchableOpacity>
               );
             })}
 
             {roleUpdating && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={COLORS.primary} />
-              </View>
+              <ActivityIndicator
+                size="small"
+                color={COLORS.primary}
+                style={{ marginTop: SIZES.large }}
+              />
             )}
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </View>
   );
@@ -455,188 +328,128 @@ export default function UsersScreen() {
 // 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
 // =============================================================================
 const styles = StyleSheet.create({
-  headerContainer: {
+  header: {
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+    ...SHADOWS.light,
+    zIndex: 10,
   },
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  // Stats Block
-  statsContainer: {
-    flexDirection: "row",
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 12,
-    padding: 8,
-    alignItems: "center",
-  },
-  statItem: {
-    alignItems: "center",
-    paddingHorizontal: 8,
-    minWidth: 40,
-  },
-  statValue: {
-    fontWeight: "700",
-    fontSize: 14,
-    color: COLORS.textMain,
-  },
-  statLabel: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-  },
-  statDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: COLORS.border,
-  },
-  // Search
-  searchWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+  iconWrapper: {
+    width: 44,
     height: 44,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: SIZES.medium,
   },
-  searchIcon: { marginRight: 8 },
-  searchInput: {
-    flex: 1,
-    height: "100%",
-    color: COLORS.textMain,
-    fontSize: 14,
-  },
-  clearBtn: { padding: 4 },
-
-  // List
   listContent: {
     padding: SIZES.large,
     paddingBottom: 40,
   },
+
+  // Карточка юзера
   userCard: {
     padding: SIZES.medium,
     marginBottom: SIZES.medium,
   },
   avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.surfaceElevated,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    marginRight: SIZES.small,
   },
   avatarStaff: {
-    backgroundColor: COLORS.primary + "10",
-    borderColor: COLORS.primary + "30",
-  },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.textMuted,
-  },
-  avatarTextStaff: {
-    color: COLORS.primary,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
   },
   roleBadge: {
+    backgroundColor: COLORS.surfaceElevated,
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 6,
+    borderRadius: SIZES.radiusSm,
+  },
+  roleBadgeStaff: {
+    backgroundColor: "rgba(59, 130, 246, 0.15)",
   },
   roleBadgeText: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "700",
+    color: COLORS.textMuted,
+  },
+  roleBadgeTextStaff: {
+    color: COLORS.primary,
   },
   divider: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginVertical: 12,
-    opacity: 0.5,
+    marginVertical: SIZES.small,
   },
   editRoleBtn: {
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
     paddingVertical: 6,
     paddingHorizontal: 12,
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 8,
+    borderRadius: SIZES.radiusSm,
   },
   editRoleText: {
-    color: COLORS.primary,
-    fontSize: 12,
+    color: COLORS.textMain,
+    fontSize: SIZES.fontSmall,
     fontWeight: "600",
   },
 
-  // Modal
+  // Модалка
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    borderTopLeftRadius: SIZES.radiusLg,
+    borderTopRightRadius: SIZES.radiusLg,
+    padding: SIZES.large,
+    paddingBottom: Platform.OS === "ios" ? 40 : SIZES.large,
+    ...SHADOWS.medium, // Объем для самой модалки
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: SIZES.large,
   },
   closeBtn: {
-    padding: 8,
+    padding: SIZES.base,
     backgroundColor: COLORS.surfaceElevated,
     borderRadius: 20,
   },
   roleOptionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
     backgroundColor: COLORS.surfaceElevated,
+    padding: SIZES.medium,
+    borderRadius: SIZES.radiusMd,
+    marginBottom: SIZES.small,
     borderWidth: 1,
     borderColor: "transparent",
   },
   roleOptionBtnActive: {
-    backgroundColor: COLORS.primary + "08",
+    backgroundColor: "rgba(59, 130, 246, 0.05)",
     borderColor: COLORS.primary,
   },
-  roleIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: COLORS.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   roleOptionTitle: {
-    fontSize: 15,
+    fontSize: SIZES.fontBase,
     fontWeight: "600",
     color: COLORS.textMain,
-    marginBottom: 2,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 24,
+    marginBottom: 4,
   },
 
-  // States
+  // Состояния
   centerContainer: {
     flex: 1,
     justifyContent: "center",
@@ -646,28 +459,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 60,
   },
-  emptyIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: COLORS.surfaceElevated,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   errorBox: {
-    backgroundColor: COLORS.danger + "10",
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    padding: SIZES.medium,
+    borderRadius: SIZES.radiusMd,
     borderWidth: 1,
-    borderColor: COLORS.danger + "30",
-    marginBottom: 16,
-    maxWidth: "80%",
+    borderColor: "rgba(239, 68, 68, 0.3)",
   },
   errorText: {
     color: COLORS.danger,
     textAlign: "center",
-  },
-  retryBtn: {
-    padding: 10,
   },
 });

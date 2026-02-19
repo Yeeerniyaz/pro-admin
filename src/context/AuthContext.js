@@ -1,10 +1,11 @@
 /**
  * @file src/context/AuthContext.js
- * @description Глобальный контекст авторизации и управления сессией (PROADMIN Mobile v10.0.0).
+ * @description Глобальный контекст авторизации и управления сессией (PROADMIN Mobile v11.0.0).
  * * ARCHITECT NOTES:
  * - Переход на Session-based Auth (Cookie).
  * - Реализована проверка валидности сессии при старте (Bootstrap).
  * - Добавлена утилита hasRole для RBAC (Role Based Access Control).
+ * - ИСПРАВЛЕНО: Добавлен export для AuthContext, устранен краш Cannot read property 'Provider' of undefined.
  *
  * @module AuthContext
  */
@@ -17,11 +18,12 @@ import React, {
   useCallback,
 } from "react";
 import { Alert } from "react-native";
+
 // Импортируем наш обновленный API слой
 import { API } from "../api/api";
 
-// Создаем контекст
-const AuthContext = createContext({});
+// 🔥 ИСПРАВЛЕНИЕ: Обязательно экспортируем сам контекст, чтобы другие файлы (App.js) могли его импортировать!
+export const AuthContext = createContext({});
 
 /**
  * Провайдер авторизации. Оборачивает все приложение.
@@ -102,7 +104,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   /**
-   * 4. Helper: Проверка прав доступа
+   * 4. Helper: Проверка прав доступа (RBAC)
    * @param {string|string[]} roles - Роль или массив ролей, которым доступ разрешен
    */
   const hasRole = (roles) => {
@@ -149,7 +151,7 @@ export const AuthProvider = ({ children }) => {
 };
 
 /**
- * Хук для использования контекста
+ * Хук для удобного использования контекста в компонентах
  */
 export const useAuth = () => {
   const context = useContext(AuthContext);

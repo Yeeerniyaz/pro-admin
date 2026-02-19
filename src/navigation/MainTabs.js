@@ -1,136 +1,104 @@
 /**
  * @file src/navigation/MainTabs.js
- * @description Главный навигатор приложения (Tabs).
- * UPGRADES (Senior):
- * - Полностью кастомный стиль TabBar (Floating style).
- * - Интеграция всех новых модулей (Finance, Users, Settings).
- * - Отключение стандартных хедеров для использования кастомных.
- * - Оптимизация иконок и цветов.
+ * @description Нижняя панель навигации (Bottom Tabs) для PROADMIN v11.0.0.
+ * Связывает Аналитику, Реестр объектов, Кассу, Персонал и Настройки.
+ * ДОБАВЛЕНО: 5-я вкладка (Персонал), умное скрытие при открытии клавиатуры, тени (SHADOWS).
  *
  * @module MainTabs
  */
 
 import React from "react";
-import { View, StyleSheet, Platform, TouchableOpacity } from "react-native";
+import { StyleSheet, Platform, View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import {
   LayoutDashboard,
-  ListTodo,
+  Briefcase,
+  DollarSign,
+  Sliders,
   Users,
-  Wallet,
-  Settings,
 } from "lucide-react-native";
 
-// Импорт экранов
+// Импорт нашей дизайн-системы
+import { COLORS, SHADOWS, SIZES } from "../theme/theme";
+
+// Подключаем все боевые экраны
 import DashboardScreen from "../screens/DashboardScreen";
 import OrdersScreen from "../screens/OrdersScreen";
-import UsersScreen from "../screens/UsersScreen";
 import FinanceScreen from "../screens/FinanceScreen";
+import UsersScreen from "../screens/UsersScreen";
 import SettingsScreen from "../screens/SettingsScreen";
 
-// Импорт темы
-import { COLORS, SIZES, SHADOWS } from "../theme/theme";
-
+// Инициализация навигатора
 const Tab = createBottomTabNavigator();
-
-// Кастомная кнопка таба (для анимаций или особого стиля в будущем)
-const TabButton = ({ accessibilityState, children, onPress }) => {
-  const isSelected = accessibilityState.selected;
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      onPress={onPress}
-      style={[styles.tabButton, isSelected && styles.tabButtonActive]}
-    >
-      <View
-        style={[styles.iconContainer, isSelected && styles.iconContainerActive]}
-      >
-        {children}
-      </View>
-    </TouchableOpacity>
-  );
-};
 
 export default function MainTabs() {
   return (
     <Tab.Navigator
       screenOptions={{
-        headerShown: false, // Мы используем свои хедеры на экранах
-        tabBarShowLabel: true, // Показываем подписи для ясности
+        headerShown: false, // Отключаем стандартные заголовки (у нас свои красивые)
+        tabBarHideOnKeyboard: true, // 🔥 Прячем табы, когда открыта клавиатура
         tabBarStyle: styles.tabBar,
-        tabBarLabelStyle: styles.tabLabel,
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textMuted,
-        tabBarHideOnKeyboard: true, // Скрывать при вводе текста
+        tabBarShowLabel: true,
+        tabBarLabelStyle: styles.tabBarLabel,
       }}
     >
-      {/* 1. ГЛАВНАЯ */}
+      {/* 1. АНАЛИТИКА */}
       <Tab.Screen
-        name="Dashboard"
+        name="DashboardTab"
         component={DashboardScreen}
         options={{
           tabBarLabel: "Обзор",
-          tabBarIcon: ({ color, size, focused }) => (
-            <LayoutDashboard
-              color={color}
-              size={24}
-              strokeWidth={focused ? 2.5 : 2}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <LayoutDashboard color={color} size={size} />
           ),
-          tabBarButton: (props) => <TabButton {...props} />,
         }}
       />
 
-      {/* 2. ЗАКАЗЫ */}
+      {/* 2. ОБЪЕКТЫ */}
       <Tab.Screen
-        name="Orders"
+        name="OrdersTab"
         component={OrdersScreen}
         options={{
           tabBarLabel: "Объекты",
-          tabBarIcon: ({ color, size, focused }) => (
-            <ListTodo color={color} size={24} strokeWidth={focused ? 2.5 : 2} />
+          tabBarIcon: ({ color, size }) => (
+            <Briefcase color={color} size={size} />
           ),
-          tabBarButton: (props) => <TabButton {...props} />,
         }}
       />
 
-      {/* 3. ФИНАНСЫ (Новый модуль) */}
+      {/* 3. КАССА */}
       <Tab.Screen
-        name="Finance"
+        name="FinanceTab"
         component={FinanceScreen}
         options={{
           tabBarLabel: "Касса",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Wallet color={color} size={24} strokeWidth={focused ? 2.5 : 2} />
+          tabBarIcon: ({ color, size }) => (
+            <DollarSign color={color} size={size} />
           ),
-          tabBarButton: (props) => <TabButton {...props} />,
         }}
       />
 
-      {/* 4. ПЕРСОНАЛ (Новый модуль) */}
+      {/* 4. ПЕРСОНАЛ (Новая вкладка в v11.0) */}
       <Tab.Screen
-        name="Users"
+        name="UsersTab"
         component={UsersScreen}
         options={{
-          tabBarLabel: "Штат",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Users color={color} size={24} strokeWidth={focused ? 2.5 : 2} />
-          ),
-          tabBarButton: (props) => <TabButton {...props} />,
+          tabBarLabel: "Люди",
+          tabBarIcon: ({ color, size }) => <Users color={color} size={size} />,
         }}
       />
 
-      {/* 5. НАСТРОЙКИ */}
+      {/* 5. ПРАЙС / НАСТРОЙКИ */}
       <Tab.Screen
-        name="Settings"
+        name="SettingsTab"
         component={SettingsScreen}
         options={{
-          tabBarLabel: "Меню",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Settings color={color} size={24} strokeWidth={focused ? 2.5 : 2} />
+          tabBarLabel: "Прайс",
+          tabBarIcon: ({ color, size }) => (
+            <Sliders color={color} size={size} />
           ),
-          tabBarButton: (props) => <TabButton {...props} />,
         }}
       />
     </Tab.Navigator>
@@ -138,50 +106,25 @@ export default function MainTabs() {
 }
 
 // =============================================================================
-// 🎨 STYLES
+// 🎨 ВНУТРЕННИЕ СТИЛИ НАВИГАТОРА
 // =============================================================================
 const styles = StyleSheet.create({
   tabBar: {
-    position: "absolute",
-    bottom: Platform.OS === "ios" ? 25 : 15,
-    left: 15,
-    right: 15,
-    height: 65,
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    borderTopWidth: 0, // Убираем стандартную линию
-    // Тени для "Floating" эффекта
-    shadowColor: COLORS.primary,
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
-    paddingBottom: Platform.OS === "ios" ? 0 : 5, // Корректировка центровки
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    height: Platform.OS === "ios" ? 85 : 65, // Кроссплатформенная высота
+    paddingBottom: Platform.OS === "ios" ? 25 : 8,
+    paddingTop: 8,
+    ...SHADOWS.medium, // Добавляем объем для нижней панели
+    position: "absolute", // Делаем панель плавающей
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
-  tabLabel: {
+  tabBarLabel: {
     fontSize: 10,
     fontWeight: "600",
-    marginBottom: 5,
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabButtonActive: {
-    // Можно добавить стиль контейнера для активного таба
-  },
-  iconContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 5,
-    borderRadius: 12,
-  },
-  iconContainerActive: {
-    backgroundColor: COLORS.primary + "10", // Легкая подсветка активной иконки
-    transform: [{ scale: 1.1 }], // Легкое увеличение
+    marginTop: 2,
   },
 });

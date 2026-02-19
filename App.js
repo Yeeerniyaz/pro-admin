@@ -1,143 +1,130 @@
 /**
  * @file App.js
- * @description Корневой компонент приложения ProElectric (PROADMIN Mobile v10.0.0).
- * UPGRADES (Senior):
- * - Интеграция Stack Navigator поверх Tab Navigator.
- * - Регистрация всех модальных и детальных экранов.
- * - Глобальная обработка Safe Area и Status Bar.
- * - Плавные переходы (Animations).
+ * @description Командный центр мобильного приложения PROADMIN (React Native v11.0.0).
+ * Отвечает за инициализацию, проверку сессии (Auth Flow) и глобальную маршрутизацию.
+ * ДОБАВЛЕНО: Регистрация BroadcastScreen в защищенном стэке, чистая интеграция AuthContext.
  *
- * @module App
+ * @module RootApp
  */
 
-import React from "react";
-import {
-  View,
-  ActivityIndicator,
-  StyleSheet,
-  StatusBar,
-  Platform,
-} from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator, StatusBar } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-// 1. Импорт контекста авторизации
-import { AuthProvider, useAuth } from "./src/context/AuthContext";
+// Импорт архитектуры и шлюза
+import { API } from "./src/api/api";
+import { COLORS, GLOBAL_STYLES } from "./src/theme/theme";
+import { AuthContext } from "./src/context/AuthContext"; // Строгий импорт контекста
 
-// 2. Импорт навигации
-import MainTabs from "./src/navigation/MainTabs";
-
-// 3. Импорт экранов
+// Импорт реальных экранов и навигации
 import LoginScreen from "./src/screens/LoginScreen";
-// Экраны, которые открываются ПОВЕРХ табов (Stack)
+import MainTabs from "./src/navigation/MainTabs";
 import OrderDetailScreen from "./src/screens/OrderDetailScreen";
 import CreateOrderScreen from "./src/screens/CreateOrderScreen";
-import BroadcastScreen from "./src/screens/BroadcastScreen";
+import BroadcastScreen from "./src/screens/BroadcastScreen"; // 🔥 Новый экран рассылок
 
-// 4. Импорт темы
-import { COLORS } from "./src/theme/theme";
-
+// Инициализация навигатора
 const Stack = createNativeStackNavigator();
 
-/**
- * @component AppNavigator
- * @description Управляет логикой "Вход vs Приложение" на основе токена.
- */
-const AppNavigator = () => {
-  const { user, loading } = useAuth();
+export default function App() {
+  // Состояния жизненного цикла приложения
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Пока проверяем токен в SecureStore/AsyncStorage — показываем сплэш или лоадер
-  if (loading) {
+  // =============================================================================
+  // 🔐 1. ПРОВЕРКА СЕССИИ ПРИ ХОЛОДНОМ СТАРТЕ
+  // =============================================================================
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const res = await API.checkAuth();
+        if (res.authenticated) {
+          setIsAuthenticated(true);
+        }
+      } catch (error) {
+        console.log(
+          "[App Boot] Сессия не найдена или истекла. Требуется логин.",
+        );
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false); // Снимаем экран загрузки в любом случае
+      }
+    };
+
+    verifySession();
+  }, []);
+
+  // =============================================================================
+  // ⚙️ 2. ГЛОБАЛЬНЫЕ МЕТОДЫ УПРАВЛЕНИЯ СЕССИЕЙ (ПЕРЕДАЮТСЯ ЧЕРЕЗ CONTEXT)
+  // =============================================================================
+  const authContextValue = {
+    signIn: () => setIsAuthenticated(true),
+    signOut: async () => {
+      setIsLoading(true);
+      try {
+        await API.logout();
+      } catch (e) {
+        console.error("[App Auth] Ошибка при выходе:", e);
+      } finally {
+        setIsAuthenticated(false);
+        setIsLoading(false);
+      }
+    },
+  };
+
+  // =============================================================================
+  // ⏳ 3. ЭКРАН ХОЛОДНОЙ ЗАГРУЗКИ (SPLASH SCREEN / BOOT)
+  // =============================================================================
+  if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[GLOBAL_STYLES.safeArea, GLOBAL_STYLES.center]}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={COLORS.background}
+        />
         <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
     );
   }
 
+  // =============================================================================
+  // 🚀 4. ГЛАВНЫЙ РЕНДЕР С CONDITIONAL ROUTING
+  // =============================================================================
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false, // Мы используем свои кастомные хедеры внутри экранов
-        animation: "slide_from_right", // Стандартная анимация переходов iOS/Android
-        // Для iOS можно включить жест "свайп назад"
-        gestureEnabled: true,
-      }}
-    >
-      {user ? (
-        // === ЗОНА АВТОРИЗОВАННОГО ПОЛЬЗОВАТЕЛЯ ===
-        <>
-          {/* Главный экран с табами */}
-          <Stack.Screen name="MainTabs" component={MainTabs} />
-
-          {/* Детальные экраны (Push Navigation) */}
-          <Stack.Screen
-            name="OrderDetail"
-            component={OrderDetailScreen}
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="CreateOrder"
-            component={CreateOrderScreen}
-            options={{
-              animation: "slide_from_bottom", // Открываем снизу как модалку (UX pattern)
-              presentation: "modal", // На iOS это даст нативный вид модалки
-            }}
-          />
-          <Stack.Screen
-            name="Broadcast"
-            component={BroadcastScreen}
-            options={{ animation: "fade" }}
-          />
-        </>
-      ) : (
-        // === ЗОНА ГОСТЯ ===
-        <Stack.Screen
-          name="Login"
-          component={LoginScreen}
-          options={{ animationTypeForReplace: "pop" }}
-        />
-      )}
-    </Stack.Navigator>
-  );
-};
-
-/**
- * @component App
- * @description Корневая обертка с провайдерами.
- */
-export default function App() {
-  return (
-    // GestureHandlerRootView нужен для корректной работы жестов (Swipe, Scroll)
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <AuthContext.Provider value={authContextValue}>
       <SafeAreaProvider>
-        <AuthProvider>
-          {/* Настройка статус-бара под дизайн */}
-          <StatusBar
-            barStyle={Platform.OS === "ios" ? "dark-content" : "dark-content"}
-            backgroundColor={COLORS.background}
-            translucent={false} // Чтобы не налезал на контент на Android
-          />
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={COLORS.background}
+        />
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {isAuthenticated ? (
+              // 🟢 ЗАЩИЩЕННАЯ ЗОНА (Main App) - Глобальный стэк
+              <>
+                {/* Главные табы (Аналитика, Объекты, Касса, Персонал, Прайс) */}
+                <Stack.Screen name="Main" component={MainTabs} />
 
-          <NavigationContainer>
-            <AppNavigator />
-          </NavigationContainer>
-        </AuthProvider>
+                {/* Глобальные экраны (открываются поверх табов) */}
+                <Stack.Screen
+                  name="OrderDetail"
+                  component={OrderDetailScreen}
+                />
+                <Stack.Screen
+                  name="CreateOrder"
+                  component={CreateOrderScreen}
+                />
+                <Stack.Screen name="Broadcast" component={BroadcastScreen} />
+              </>
+            ) : (
+              // 🔴 ЗОНА АВТОРИЗАЦИИ (Auth Flow) - Идеально чистая навигация
+              <Stack.Screen name="Login" component={LoginScreen} />
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
       </SafeAreaProvider>
-    </GestureHandlerRootView>
+    </AuthContext.Provider>
   );
 }
-
-// =============================================================================
-// 🎨 GLOBAL STYLES
-// =============================================================================
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: COLORS.background,
-  },
-});

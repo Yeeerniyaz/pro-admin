@@ -1,17 +1,13 @@
 /**
  * @file src/screens/FinanceScreen.js
- * @description Экран Глобальной Кассы и Финансов (PROADMIN Mobile v10.0.0).
+ * @description Экран Глобальной Кассы (PROADMIN Mobile v11.0.0).
  * Управление корпоративными финансами: балансы счетов, история транзакций и проведение новых операций.
- * UPGRADES (Senior):
- * - FIX: SafeAreaView (react-native-safe-area-context) для фикса системной полосы на Android.
- * - FIX: ScrollView + keyboardShouldPersistTaps внутри модалки для идеальной работы клавиатуры.
- * - FEAT: Сохранены все аналитические функции (Сводка, Фильтры, Теги категорий).
- * - FEAT: Интеграция с реальным API без сокращения функциональности.
+ * ДОБАВЛЕНО: Интеграция с системой глубоких теней (elevated карточки), плавающая шапка.
  *
  * @module FinanceScreen
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -24,10 +20,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  Alert,
-  Keyboard,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import {
   DollarSign,
   PlusCircle,
@@ -35,37 +28,16 @@ import {
   ArrowUpRight,
   X,
   CreditCard,
-  PieChart,
-  Wallet,
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
-import { PeCard, PeButton, PeInput } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
+import { PeCard, PeBadge, PeButton, PeInput } from "../components/ui";
+import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
 // =============================================================================
-// 🛠 КОНСТАНТЫ И УТИЛИТЫ (Сохранены внутри файла для надежности)
+// 🛠 УТИЛИТЫ ФОРМАТИРОВАНИЯ
 // =============================================================================
-const PRESET_CATEGORIES = [
-  "Материалы",
-  "Зарплата",
-  "Инструмент",
-  "Офис",
-  "Транспорт",
-  "Маркетинг",
-  "Налоги",
-  "Прочее",
-];
-
-const PRESET_INCOME = [
-  "Оплата объекта",
-  "Аванс",
-  "Доп. работы",
-  "Инвестиции",
-  "Возврат",
-];
-
 const formatKZT = (num) => {
   const value = parseFloat(num) || 0;
   return value.toLocaleString("ru-RU") + " ₸";
@@ -93,9 +65,6 @@ export default function FinanceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
-  // Состояние фильтра
-  const [filterType, setFilterType] = useState("all"); // 'all', 'income', 'expense'
-
   // Состояния модального окна (Новая транзакция)
   const [modalVisible, setModalVisible] = useState(false);
   const [txAccountId, setTxAccountId] = useState("");
@@ -105,11 +74,8 @@ export default function FinanceScreen() {
   const [txComment, setTxComment] = useState("");
   const [txLoading, setTxLoading] = useState(false);
 
-  // Ошибки валидации формы
-  const [formErrors, setFormErrors] = useState({});
-
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ
+  // 📡 ЗАГРУЗКА ДАННЫХ (ACCOUNTS & TRANSACTIONS)
   // =============================================================================
   const fetchFinanceData = async (isRefresh = false) => {
     try {
@@ -118,7 +84,7 @@ export default function FinanceScreen() {
 
       const [accountsData, transactionsData] = await Promise.all([
         API.getFinanceAccounts(),
-        API.getFinanceTransactions(100),
+        API.getFinanceTransactions(50),
       ]);
 
       setAccounts(accountsData || []);
@@ -146,138 +112,48 @@ export default function FinanceScreen() {
   }, []);
 
   // =============================================================================
-  // 📊 АНАЛИТИКА И ФИЛЬТРАЦИЯ
-  // =============================================================================
-  const filteredTransactions = useMemo(() => {
-    if (filterType === "all") return transactions;
-    return transactions.filter((t) => t.type === filterType);
-  }, [transactions, filterType]);
-
-  const stats = useMemo(() => {
-    let income = 0;
-    let expense = 0;
-
-    transactions.forEach((t) => {
-      const amt = parseFloat(t.amount) || 0;
-      if (t.type === "income") income += amt;
-      else expense += amt;
-    });
-
-    return { income, expense, total: income - expense };
-  }, [transactions]);
-
-  // =============================================================================
-  // 💸 ОБРАБОТЧИК НОВОЙ ТРАНЗАКЦИИ (С ВАЛИДАЦИЕЙ)
+  // 💸 ОБРАБОТЧИК НОВОЙ ТРАНЗАКЦИИ
   // =============================================================================
   const handleTransactionSubmit = async () => {
-    Keyboard.dismiss();
-    let isValid = true;
-    let errors = {};
-
-    if (!txAccountId) {
-      Alert.alert("Ошибка", "Выберите счет списания/зачисления");
-      isValid = false;
+    if (
+      !txAccountId ||
+      !txAmount ||
+      isNaN(txAmount) ||
+      parseFloat(txAmount) <= 0
+    ) {
+      alert("Пожалуйста, введите корректную сумму");
+      return;
     }
-
-    const amountVal = parseFloat(txAmount.replace(/[^0-9.]/g, ""));
-    if (!txAmount || isNaN(amountVal) || amountVal <= 0) {
-      errors.amount = "Введите корректную сумму";
-      isValid = false;
-    }
-
-    if (!txCategory.trim()) {
-      errors.category = "Укажите категорию";
-      isValid = false;
-    }
-
-    setFormErrors(errors);
-
-    if (!isValid) return;
 
     setTxLoading(true);
     try {
       await API.addFinanceTransaction({
         accountId: parseInt(txAccountId),
         type: txType,
-        amount: amountVal,
-        category: txCategory.trim(),
-        comment: txComment.trim(),
+        amount: parseFloat(txAmount),
+        category: txCategory,
+        comment: txComment,
       });
 
-      // Очистка формы
+      // Очистка формы и закрытие модалки
       setTxAmount("");
       setTxComment("");
-      setTxCategory("Прочее");
       setModalVisible(false);
 
-      // Обновление данных для отображения новых балансов
+      // Реактивное обновление данных
       fetchFinanceData(true);
-      Alert.alert("Успех", "Операция успешно проведена");
     } catch (err) {
-      Alert.alert("Ошибка", err.message || "Ошибка при проведении операции");
+      alert(err.message || "Ошибка при проведении операции");
     } finally {
       setTxLoading(false);
     }
   };
 
   // =============================================================================
-  // 🧩 КОМПОНЕНТЫ РЕНДЕРИНГА
+  // 🧩 РЕНДЕР КАРТОЧКИ СЧЕТА (ГОРИЗОНТАЛЬНЫЙ СКРОЛЛ)
   // =============================================================================
-  const renderSummaryHeader = () => (
-    <View style={styles.summaryContainer}>
-      <PeCard style={styles.summaryCard}>
-        <View style={GLOBAL_STYLES.rowBetween}>
-          <View>
-            <Text style={styles.summaryLabel}>Оборот за период</Text>
-            <Text
-              style={[
-                styles.summaryValue,
-                { color: stats.total >= 0 ? COLORS.success : COLORS.danger },
-              ]}
-            >
-              {stats.total > 0 ? "+" : ""}
-              {formatKZT(stats.total)}
-            </Text>
-          </View>
-          <View style={styles.summaryIconBox}>
-            <PieChart color={COLORS.primary} size={24} />
-          </View>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <ArrowUpRight
-              color={COLORS.success}
-              size={16}
-              style={{ marginBottom: 4 }}
-            />
-            <Text style={styles.summarySubValue}>
-              {formatKZT(stats.income)}
-            </Text>
-            <Text style={styles.summarySubLabel}>Приход</Text>
-          </View>
-          <View style={styles.summaryVerticalDivider} />
-          <View style={styles.summaryItem}>
-            <ArrowDownRight
-              color={COLORS.danger}
-              size={16}
-              style={{ marginBottom: 4 }}
-            />
-            <Text style={styles.summarySubValue}>
-              {formatKZT(stats.expense)}
-            </Text>
-            <Text style={styles.summarySubLabel}>Расход</Text>
-          </View>
-        </View>
-      </PeCard>
-    </View>
-  );
-
   const renderAccountCards = () => (
     <View style={styles.accountsContainer}>
-      <Text style={styles.sectionTitle}>Счета компании</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -286,7 +162,7 @@ export default function FinanceScreen() {
         {accounts.map((acc) => {
           const isPositive = acc.balance >= 0;
           return (
-            <PeCard key={acc.id} style={styles.accountCard}>
+            <PeCard elevated={true} key={acc.id} style={styles.accountCard}>
               <View style={GLOBAL_STYLES.rowCenter}>
                 <View
                   style={[
@@ -329,6 +205,9 @@ export default function FinanceScreen() {
     </View>
   );
 
+  // =============================================================================
+  // 🧩 РЕНДЕР ИСТОРИИ (FLATLIST ITEM)
+  // =============================================================================
   const renderTransactionItem = ({ item }) => {
     const isIncome = item.type === "income";
     const amountStr = isIncome
@@ -337,7 +216,7 @@ export default function FinanceScreen() {
     const amountColor = isIncome ? COLORS.success : COLORS.danger;
 
     return (
-      <PeCard style={styles.txCard}>
+      <PeCard elevated={true} style={styles.txCard}>
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
             <View
@@ -380,18 +259,17 @@ export default function FinanceScreen() {
   };
 
   // =============================================================================
-  // 🖥 ГЛАВНЫЙ РЕНДЕР
+  // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    <SafeAreaView
-      style={GLOBAL_STYLES.safeArea}
-      edges={["top", "left", "right"]}
-    >
+    <View style={GLOBAL_STYLES.safeArea}>
       {/* 🎩 ШАПКА ЭКРАНА */}
       <View style={styles.header}>
         <View>
           <Text style={GLOBAL_STYLES.h1}>Касса</Text>
-          <Text style={GLOBAL_STYLES.textMuted}>Управление финансами</Text>
+          <Text style={GLOBAL_STYLES.textMuted}>
+            Управление корпоративными финансами
+          </Text>
         </View>
         <TouchableOpacity
           style={styles.addButton}
@@ -407,7 +285,7 @@ export default function FinanceScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 📜 СПИСОК */}
+      {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
@@ -415,11 +293,9 @@ export default function FinanceScreen() {
           </View>
           <TouchableOpacity
             onPress={() => fetchFinanceData()}
-            style={{ marginTop: 12, padding: 8 }}
+            style={{ marginTop: 10 }}
           >
-            <Text style={{ color: COLORS.primary, fontWeight: "600" }}>
-              Обновить данные
-            </Text>
+            <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
       ) : loading && !refreshing ? (
@@ -428,69 +304,9 @@ export default function FinanceScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredTransactions}
+          data={transactions}
           keyExtractor={(item) => item.id.toString()}
-          ListHeaderComponent={
-            <>
-              {renderSummaryHeader()}
-              {renderAccountCards()}
-
-              {/* Фильтры списка */}
-              <View style={styles.filterContainer}>
-                <Text style={styles.sectionTitle}>История операций</Text>
-                <View style={styles.filterTabs}>
-                  <TouchableOpacity
-                    style={[
-                      styles.filterTab,
-                      filterType === "all" && styles.filterTabActive,
-                    ]}
-                    onPress={() => setFilterType("all")}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        filterType === "all" && styles.filterTextActive,
-                      ]}
-                    >
-                      Все
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.filterTab,
-                      filterType === "income" && styles.filterTabActive,
-                    ]}
-                    onPress={() => setFilterType("income")}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        filterType === "income" && styles.filterTextActive,
-                      ]}
-                    >
-                      Приход
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.filterTab,
-                      filterType === "expense" && styles.filterTabActive,
-                    ]}
-                    onPress={() => setFilterType("expense")}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        filterType === "expense" && styles.filterTextActive,
-                      ]}
-                    >
-                      Расход
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
-          }
+          ListHeaderComponent={renderAccountCards} // Счета рендерятся над списком транзакций
           renderItem={renderTransactionItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -503,13 +319,11 @@ export default function FinanceScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <View style={styles.emptyIconBg}>
-                <Wallet color={COLORS.textMuted} size={32} />
-              </View>
+              <DollarSign color={COLORS.surfaceHover} size={48} />
               <Text
                 style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}
               >
-                Операций не найдено
+                Операций пока нет
               </Text>
             </View>
           }
@@ -538,12 +352,7 @@ export default function FinanceScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* ВАЖНО: ScrollView + keyboardShouldPersistTaps решает проблему с клавиатурой */}
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 20 }}
-            >
+            <ScrollView showsVerticalScrollIndicator={false}>
               {/* Тип операции */}
               <View style={styles.typeSelector}>
                 <TouchableOpacity
@@ -552,6 +361,7 @@ export default function FinanceScreen() {
                     txType === "expense" && styles.typeBtnExpense,
                   ]}
                   onPress={() => setTxType("expense")}
+                  activeOpacity={0.7}
                 >
                   <Text
                     style={[
@@ -568,6 +378,7 @@ export default function FinanceScreen() {
                     txType === "income" && styles.typeBtnIncome,
                   ]}
                   onPress={() => setTxType("income")}
+                  activeOpacity={0.7}
                 >
                   <Text
                     style={[
@@ -581,112 +392,63 @@ export default function FinanceScreen() {
               </View>
 
               {/* Выбор счета */}
-              <Text style={styles.labelSmall}>Выберите счет</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.accountSelectorScroll}
+              <Text
+                style={[
+                  GLOBAL_STYLES.textSmall,
+                  {
+                    marginBottom: SIZES.base,
+                    color: COLORS.textMuted,
+                    textTransform: "uppercase",
+                  },
+                ]}
               >
-                <View style={styles.accountSelector}>
-                  {accounts.map((acc) => (
-                    <TouchableOpacity
-                      key={acc.id}
+                Счет
+              </Text>
+              <View style={styles.accountSelector}>
+                {accounts.map((acc) => (
+                  <TouchableOpacity
+                    key={acc.id}
+                    style={[
+                      styles.accBtn,
+                      txAccountId === acc.id.toString() && styles.accBtnActive,
+                    ]}
+                    onPress={() => setTxAccountId(acc.id.toString())}
+                    activeOpacity={0.7}
+                  >
+                    <Text
                       style={[
-                        styles.accBtn,
-                        txAccountId === acc.id.toString() &&
-                          styles.accBtnActive,
+                        styles.accBtnText,
+                        txAccountId === acc.id.toString() && {
+                          color: COLORS.primary,
+                        },
                       ]}
-                      onPress={() => setTxAccountId(acc.id.toString())}
                     >
-                      {acc.type === "cash" ? (
-                        <DollarSign
-                          size={14}
-                          color={
-                            txAccountId === acc.id.toString()
-                              ? COLORS.primary
-                              : COLORS.textMuted
-                          }
-                        />
-                      ) : (
-                        <CreditCard
-                          size={14}
-                          color={
-                            txAccountId === acc.id.toString()
-                              ? COLORS.primary
-                              : COLORS.textMuted
-                          }
-                        />
-                      )}
-                      <Text
-                        style={[
-                          styles.accBtnText,
-                          txAccountId === acc.id.toString() && {
-                            color: COLORS.primary,
-                            fontWeight: "700",
-                          },
-                        ]}
-                      >
-                        {acc.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              <PeInput
-                label="Сумма (₸) *"
-                placeholder="0"
-                keyboardType="numeric"
-                value={txAmount}
-                onChangeText={(text) => {
-                  setTxAmount(text);
-                  if (formErrors.amount)
-                    setFormErrors({ ...formErrors, amount: null });
-                }}
-                error={formErrors.amount}
-              />
-
-              <View>
-                <PeInput
-                  label="Категория *"
-                  placeholder="Выберите или введите..."
-                  value={txCategory}
-                  onChangeText={(text) => {
-                    setTxCategory(text);
-                    if (formErrors.category)
-                      setFormErrors({ ...formErrors, category: null });
-                  }}
-                  error={formErrors.category}
-                />
-                {/* Быстрые теги (Chips) */}
-                <View style={styles.chipsContainer}>
-                  {(txType === "expense"
-                    ? PRESET_CATEGORIES
-                    : PRESET_INCOME
-                  ).map((cat) => (
-                    <TouchableOpacity
-                      key={cat}
-                      style={styles.chip}
-                      onPress={() => {
-                        setTxCategory(cat);
-                        if (formErrors.category)
-                          setFormErrors({ ...formErrors, category: null });
-                      }}
-                    >
-                      <Text style={styles.chipText}>{cat}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                      {acc.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
 
               <PeInput
+                label="Сумма (₸)"
+                placeholder="Например: 15000"
+                keyboardType="numeric"
+                value={txAmount}
+                onChangeText={setTxAmount}
+              />
+
+              <PeInput
+                label="Категория"
+                placeholder="Зарплата, Инструмент, Прочее..."
+                value={txCategory}
+                onChangeText={setTxCategory}
+              />
+
+              <PeInput
                 label="Комментарий"
-                placeholder="Детали платежа..."
+                placeholder="За что именно..."
                 value={txComment}
                 onChangeText={setTxComment}
-                multiline
-                numberOfLines={2}
-                style={{ minHeight: 60 }}
               />
 
               <PeButton
@@ -699,13 +461,12 @@ export default function FinanceScreen() {
                 onPress={handleTransactionSubmit}
                 loading={txLoading}
                 style={{ marginTop: SIZES.medium }}
-                fullWidth
               />
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -720,254 +481,181 @@ const styles = StyleSheet.create({
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+    ...SHADOWS.light,
+    zIndex: 10,
   },
   addButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: SIZES.radiusMd,
+    ...SHADOWS.glow,
   },
   addButtonText: {
     color: COLORS.textInverse,
-    fontWeight: "700",
-    fontSize: SIZES.fontBase,
-  },
-
-  // Summary Block
-  summaryContainer: {
-    paddingTop: SIZES.medium,
-    paddingHorizontal: SIZES.large,
-  },
-  summaryCard: {
-    backgroundColor: COLORS.card,
-    padding: 16,
-    borderRadius: 16,
-  },
-  summaryLabel: {
-    color: COLORS.textMuted,
-    fontSize: 12,
-    textTransform: "uppercase",
     fontWeight: "600",
-  },
-  summaryValue: { fontSize: 28, fontWeight: "800", marginVertical: 4 },
-  summaryIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: COLORS.surfaceElevated,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 12,
-    opacity: 0.5,
-  },
-  summaryRow: { flexDirection: "row", justifyContent: "space-around" },
-  summaryItem: { alignItems: "center", flex: 1 },
-  summaryVerticalDivider: {
-    width: 1,
-    height: "100%",
-    backgroundColor: COLORS.border,
-  },
-  summarySubValue: { fontWeight: "700", fontSize: 16, color: COLORS.textMain },
-  summarySubLabel: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
-
-  // Accounts
-  accountsContainer: { marginTop: 24, marginBottom: 8 },
-  sectionTitle: {
-    paddingHorizontal: SIZES.large,
     fontSize: SIZES.fontBase,
-    fontWeight: "700",
-    color: COLORS.textMain,
-    marginBottom: 12,
   },
-  accountsScroll: { paddingHorizontal: SIZES.large, gap: 12 },
-  accountCard: { width: 200, marginBottom: 0, padding: 16, borderRadius: 16 },
+
+  // Счета
+  accountsContainer: {
+    marginBottom: SIZES.medium,
+    marginTop: SIZES.medium,
+  },
+  accountsScroll: {
+    paddingHorizontal: SIZES.large,
+    gap: SIZES.medium,
+    paddingBottom: 10, // Чтобы тень elevated карточки не обрезалась
+  },
+  accountCard: {
+    width: 220,
+    marginBottom: 0,
+    padding: SIZES.medium,
+  },
   iconWrapper: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: SIZES.radiusSm,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 10,
+    marginRight: SIZES.small,
   },
   accountName: {
     color: COLORS.textMuted,
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: SIZES.fontBase,
+    fontWeight: "500",
     flex: 1,
   },
-  accountBalance: { fontSize: 20, fontWeight: "800", marginTop: 12 },
+  accountBalance: {
+    fontSize: SIZES.fontHeader,
+    fontWeight: "700",
+    marginTop: SIZES.small,
+  },
 
-  // Filters
-  filterContainer: {
-    marginTop: 24,
-    marginBottom: 12,
+  // Транзакции
+  listContent: {
     paddingHorizontal: SIZES.large,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingBottom: 100, // Отступ под нижний таб-бар
   },
-  filterTabs: {
-    flexDirection: "row",
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 10,
-    padding: 2,
-  },
-  filterTab: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
-  filterTabActive: {
-    backgroundColor: COLORS.card,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  filterText: { fontSize: 12, color: COLORS.textMuted, fontWeight: "600" },
-  filterTextActive: { color: COLORS.textMain },
-
-  // Transactions List
-  listContent: { paddingBottom: 100 },
   txCard: {
-    marginHorizontal: SIZES.large,
-    padding: 16,
-    marginBottom: 10,
-    borderRadius: 14,
+    padding: SIZES.medium,
+    marginBottom: SIZES.medium,
   },
   txIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
+    marginRight: SIZES.small,
   },
   txCategory: {
-    fontSize: 15,
+    fontSize: SIZES.fontBase,
     fontWeight: "600",
     color: COLORS.textMain,
     marginBottom: 2,
   },
-  txAmount: { fontSize: 16, fontWeight: "700", marginBottom: 2 },
+  txAmount: {
+    fontSize: SIZES.fontMedium,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
   txCommentBox: {
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: SIZES.small,
+    paddingTop: SIZES.small,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    borderStyle: "dashed",
   },
 
-  // Modal (Создание транзакции)
+  // Модалка
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "flex-end",
   },
   modalContent: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: "92%",
+    borderTopLeftRadius: SIZES.radiusLg,
+    borderTopRightRadius: SIZES.radiusLg,
+    padding: SIZES.large,
+    maxHeight: "90%",
+    ...SHADOWS.medium, // Объем для самой модалки
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: SIZES.large,
   },
   closeBtn: {
-    padding: 8,
+    padding: SIZES.base,
     backgroundColor: COLORS.surfaceElevated,
     borderRadius: 20,
   },
   typeSelector: {
     flexDirection: "row",
     backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 12,
+    borderRadius: SIZES.radiusMd,
     padding: 4,
-    marginBottom: 24,
+    marginBottom: SIZES.large,
   },
   typeBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: "center",
-    borderRadius: 10,
+    borderRadius: SIZES.radiusSm,
   },
   typeBtnExpense: { backgroundColor: COLORS.danger },
   typeBtnIncome: { backgroundColor: COLORS.success },
-  typeBtnText: { fontSize: 14, fontWeight: "700", color: COLORS.textMuted },
-
-  // Modal Inputs
-  labelSmall: {
-    fontSize: 12,
-    color: COLORS.textMuted,
+  typeBtnText: {
+    fontSize: SIZES.fontBase,
     fontWeight: "600",
-    marginBottom: 8,
-    textTransform: "uppercase",
+    color: COLORS.textMuted,
   },
-  accountSelectorScroll: { marginBottom: 16, maxHeight: 50 },
-  accountSelector: { flexDirection: "row", gap: 8 },
-  accBtn: {
+  accountSelector: {
     flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
+    gap: SIZES.small,
+    marginBottom: SIZES.large,
+  },
+  accBtn: {
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    gap: 6,
+    borderRadius: SIZES.radiusSm,
   },
   accBtnActive: {
     borderColor: COLORS.primary,
-    backgroundColor: COLORS.primary + "15",
+    backgroundColor: "rgba(59,130,246,0.1)",
   },
-  accBtnText: { color: COLORS.textMuted, fontSize: 13, fontWeight: "500" },
+  accBtnText: {
+    color: COLORS.textMuted,
+    fontSize: SIZES.fontSmall,
+    fontWeight: "500",
+  },
 
-  // Category Chips
-  chipsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-    marginTop: -8,
-  },
-  chip: {
-    backgroundColor: COLORS.surfaceElevated,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  chipText: { fontSize: 12, color: COLORS.textMuted, fontWeight: "500" },
-
-  // States
-  centerContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyContainer: { alignItems: "center", paddingTop: 40, paddingBottom: 20 },
-  emptyIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: COLORS.surfaceElevated,
-    alignItems: "center",
+  // Состояния
+  centerContainer: {
+    flex: 1,
     justifyContent: "center",
+    alignItems: "center",
+  },
+  emptyContainer: {
+    alignItems: "center",
+    paddingTop: 40,
   },
   errorBox: {
-    backgroundColor: COLORS.danger + "15",
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderWidth: 1,
-    borderColor: COLORS.danger + "30",
-    padding: 16,
-    borderRadius: 12,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    padding: SIZES.medium,
+    borderRadius: SIZES.radiusMd,
   },
-  errorText: { color: COLORS.danger, textAlign: "center" },
+  errorText: { color: COLORS.danger },
 });
