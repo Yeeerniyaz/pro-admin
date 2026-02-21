@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import { PeButton, PeInput, PeCard, PeBadge } from '../components/ui';
-import { COLORS, GLOBAL_STYLES, SIZES, SAFE_SPACING } from '../theme/theme';
+import { COLORS, GLOBAL_STYLES, SIZES, SAFE_SPACING, SHADOWS } from '../theme/theme';
 
 export default function LoginScreen() {
   const { login, requestOtp, verifyOtp } = useContext(AuthContext);
