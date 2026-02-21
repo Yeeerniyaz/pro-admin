@@ -1,11 +1,12 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v11.0.11 Enterprise).
+ * @description Экран реестра объектов (PROADMIN Mobile v11.0.16 Enterprise).
  * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
+ * ДОБАВЛЕНО: Отображение привязанной бригады прямо в карточке заказа.
  * ДОБАВЛЕНО: Строгий RBAC (Бригадиры не могут создавать заказы, динамические заголовки).
- * ДОБАВЛЕНО: Интеграция с OLED Black & Orange дизайном (замена синих оттенков на оранжевые).
- * ДОБАВЛЕНО: Отображение привязанной бригады или статуса "Биржа" прямо в карточке.
- * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и RefreshControl сохранена.
+ * ДОБАВЛЕНО: OLED-дизайн (строгие рамки, замена синих акцентов на оранжевые).
+ * ОТКАТ: Убраны UI-индикаторы SOS и Умного дома (отложено до внедрения на бэкенде).
+ * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и RefreshControl сохранена на 100%.
  *
  * @module OrdersScreen
  */
@@ -27,14 +28,14 @@ import {
   Calendar,
   User,
   PlusCircle,
-  HardHat, // 🔥 Добавлена иконка для бригад
+  HardHat, // Иконка для отображения Бригады
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
 import { PeCard, PeBadge } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
-import { AuthContext } from "../context/AuthContext"; // 🔥 Строгий импорт контекста
+import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
+import { AuthContext } from "../context/AuthContext";
 
 const formatKZT = (num) => {
   const value = parseFloat(num) || 0;
@@ -116,7 +117,6 @@ export default function OrdersScreen({ navigation }) {
         activeOpacity={0.7}
         onPress={() => navigation.navigate("OrderDetail", { order: item })}
       >
-        {/* 🔥 OLED Design: elevated={false} для строгих рамок без грязных теней */}
         <PeCard elevated={false} style={styles.orderCard}>
           <View style={GLOBAL_STYLES.rowBetween}>
             <View style={GLOBAL_STYLES.rowCenter}>
@@ -145,7 +145,7 @@ export default function OrdersScreen({ navigation }) {
                 </Text>
               </View>
 
-              {/* Вывод Бригады или Биржи */}
+              {/* ВЫВОД БРИГАДЫ ИЛИ БИРЖИ */}
               <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
                 <HardHat
                   color={item.brigade_name ? COLORS.warning : COLORS.primary}

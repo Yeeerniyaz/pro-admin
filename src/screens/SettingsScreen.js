@@ -1,7 +1,8 @@
 /**
  * @file src/screens/SettingsScreen.js
- * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v11.0.15 Enterprise).
+ * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v11.0.16 Enterprise).
  * Позволяет администратору динамически менять цены на услуги с массовым сохранением.
+ * ИСПРАВЛЕНО: Жесткий фикс клавиатуры (behavior="padding") для Android — теперь инпуты цен не перекрываются.
  * ДОБАВЛЕНО: SafeAreaView для защиты от наложения на системный статус-бар.
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки без теней, оранжевые акценты).
  * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (Deep State Update и Bulk API Save) сохранена на 100%.
@@ -118,9 +119,10 @@ export default function SettingsScreen() {
   // =============================================================================
   return (
     <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+      {/* 🔥 ЖЕСТКИЙ ФИКС КЛАВИАТУРЫ: behavior="padding" для всех платформ */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior="padding"
       >
         {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
         <View style={styles.header}>
@@ -166,7 +168,8 @@ export default function SettingsScreen() {
           <View style={{ flex: 1 }}>
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContent}
+              // 🔥 Увеличенный отступ снизу, чтобы скроллить контент над клавиатурой
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 }]}
               keyboardShouldPersistTaps="handled"
               refreshControl={
                 <RefreshControl
@@ -222,9 +225,6 @@ export default function SettingsScreen() {
                   </View>
                 ))
               )}
-
-              {/* Отступ под плавающую кнопку (чтобы контент не перекрывался) */}
-              <View style={{ height: 100 }} />
             </ScrollView>
 
             {/* 💾 ПЛАВАЮЩАЯ КНОПКА СОХРАНЕНИЯ (FLOATING ACTION BUTTON) */}

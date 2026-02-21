@@ -1,10 +1,10 @@
 /**
  * @file src/api/api.js
- * @description Mobile API Client (React Native ERP Middleware v11.0.1 Enterprise).
+ * @description Mobile API Client (React Native ERP Middleware v11.0.2 Enterprise).
  * Обеспечивает строгую типизацию HTTP-запросов к продакшен-серверу ProElectric.
- * ДОБАВЛЕНО: Умный Query Builder, фильтры дат, OTP авторизация, полное управление ERP (Бригады, Инкассация).
- * ИСПРАВЛЕНО: Маршрут проверки сессии изменен на актуальный (/auth/me).
- * НИКАКИХ УДАЛЕНИЙ: Обертка таймаутов (AbortController) и старые методы сохранены на 100%.
+ * ДОБАВЛЕНО: Network Resilience (автоматический Retry для GET-запросов при обрывах связи в подвалах/на объектах).
+ * ДОБАВЛЕНО: Эндпоинты для новой экосистемы (Фотоотчеты multipart/form-data, Аварийные вызовы, Умный дом).
+ * НИКАКИХ УДАЛЕНИЙ: Обертка таймаутов (AbortController) и все старые методы сохранены на 100%.
  *
  * @module MobileAPI
  */
@@ -31,19 +31,20 @@ const buildQuery = (params) => {
 };
 
 /**
- * Универсальная обертка для HTTP-запросов с поддержкой таймаутов.
- * Нативно поддерживает Cookie-сессии (credentials: "include").
+ * Универсальная обертка для HTTP-запросов с поддержкой таймаутов и Retry-механизмом.
+ * Нативно поддерживает Cookie-сессии (credentials: "include") и загрузку файлов (FormData).
  *
  * @param {string} endpoint - Путь (например, '/orders')
  * @param {Object} options - Настройки Fetch (method, body, headers)
+ * @param {number} retries - Количество повторных попыток при обрыве сети (по умолчанию 1)
  * @returns {Promise<any>}
  */
-async function fetchWrapper(endpoint, options = {}) {
+async function fetchWrapper(endpoint, options = {}, retries = 1) {
   options.credentials = "include"; // Обязательно для передачи Cookie сессии
   options.headers = options.headers || {};
   options.headers["Accept"] = "application/json";
 
-  // Автоматическая установка Content-Type
+  // Автоматическая установка Content-Type (если это не файл/картинка)
   if (!(options.body instanceof FormData) && options.body) {
     options.headers["Content-Type"] = "application/json";
   }
@@ -70,10 +71,20 @@ async function fetchWrapper(endpoint, options = {}) {
   } catch (error) {
     clearTimeout(id);
 
+    // 🔥 SMART RETRY (NETWORK RESILIENCE)
+    // Повторяем только безопасные GET-запросы при обрыве сети (чтобы не продублировать чек или заказ)
+    const isGetRequest = !options.method || options.method.toUpperCase() === 'GET';
+    if (isGetRequest && retries > 0 && (error.name === "AbortError" || error.message.includes("Network"))) {
+      console.warn(`[Mobile API 🔄] Обрыв связи. Повторная попытка (${retries} осталось): ${endpoint}`);
+      // Ждем 1 секунду перед повторной попыткой
+      await new Promise(res => setTimeout(res, 1000));
+      return fetchWrapper(endpoint, options, retries - 1);
+    }
+
     // Обработка таймаута
     if (error.name === "AbortError") {
       console.error(`[Mobile API 🌐] Таймаут запроса: ${endpoint}`);
-      throw new Error("Сервер не отвечает. Проверьте интернет-соединение.");
+      throw new Error("Сервер не отвечает. Проверьте интернет-соединение на объекте.");
     }
 
     console.error(
@@ -114,7 +125,7 @@ export const API = {
 
   logout: () => fetchWrapper("/auth/logout", { method: "POST" }),
 
-  // Проверка сессии (ИСПРАВЛЕНО: теперь указывает на актуальный бэкенд /auth/me)
+  // Проверка сессии 
   checkAuth: () => fetchWrapper("/auth/me"),
 
   // ==========================================
@@ -278,5 +289,36 @@ export const API = {
         imageUrl: imageUrl?.trim(),
         targetRole,
       }),
+    }),
+
+  // ==========================================
+  // 🔥 NEW ECOSYSTEM: PHOTOS & SMART HOME
+  // ==========================================
+
+  getOrderPhotos: (orderId) =>
+    fetchWrapper(`/orders/${orderId}/photos`),
+
+  /**
+   * Загрузка фотоотчета (Контроль качества) через FormData
+   */
+  uploadOrderPhoto: (orderId, photoUri, photoType = 'general') => {
+    const formData = new FormData();
+    formData.append('photo', {
+      uri: photoUri,
+      name: `photo_${orderId}_${Date.now()}.jpg`,
+      type: 'image/jpeg',
+    });
+    formData.append('photoType', photoType);
+
+    return fetchWrapper(`/orders/${orderId}/photos`, {
+      method: 'POST',
+      body: formData, // fetchWrapper автоматически уберет Content-Type для FormData
+    });
+  },
+
+  updateEcosystemFlags: (id, isEmergency, hasSmartHome) =>
+    fetchWrapper(`/orders/${id}/ecosystem`, {
+      method: "PATCH",
+      body: JSON.stringify({ isEmergency, hasSmartHome }),
     }),
 };
