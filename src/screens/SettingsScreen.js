@@ -1,8 +1,10 @@
 /**
  * @file src/screens/SettingsScreen.js
- * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v11.0.0).
+ * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v11.0.15 Enterprise).
  * Позволяет администратору динамически менять цены на услуги с массовым сохранением.
- * ДОБАВЛЕНО: Глубокие тени (elevated), плавающая шапка, светящаяся кнопка сохранения (Glow FAB).
+ * ДОБАВЛЕНО: SafeAreaView для защиты от наложения на системный статус-бар.
+ * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки без теней, оранжевые акценты).
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (Deep State Update и Bulk API Save) сохранена на 100%.
  *
  * @module SettingsScreen
  */
@@ -19,6 +21,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context"; // 🔥 Защита от челок
 import { Save, Sliders, AlertCircle } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -114,130 +117,133 @@ export default function SettingsScreen() {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    <KeyboardAvoidingView
-      style={GLOBAL_STYLES.safeArea}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
-      <View style={styles.header}>
-        <View style={GLOBAL_STYLES.rowCenter}>
-          <View style={styles.iconWrapper}>
-            <Sliders color={COLORS.primary} size={24} />
+    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
+        <View style={styles.header}>
+          <View style={GLOBAL_STYLES.rowCenter}>
+            <View style={styles.iconWrapper}>
+              <Sliders color={COLORS.primary} size={24} />
+            </View>
+            <View>
+              <Text style={GLOBAL_STYLES.h1}>Прайс-лист</Text>
+              <Text style={GLOBAL_STYLES.textMuted}>
+                Глобальные расценки системы
+              </Text>
+            </View>
           </View>
-          <View>
-            <Text style={GLOBAL_STYLES.h1}>Прайс-лист</Text>
-            <Text style={GLOBAL_STYLES.textMuted}>
-              Глобальные расценки системы
+        </View>
+
+        {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
+        {error ? (
+          <View style={styles.centerContainer}>
+            <PeCard elevated={false} style={styles.errorCard}>
+              <AlertCircle
+                color={COLORS.danger}
+                size={32}
+                style={{ marginBottom: SIZES.small }}
+              />
+              <Text style={styles.errorText}>{error}</Text>
+              <PeButton
+                title="Повторить попытку"
+                variant="secondary"
+                onPress={() => fetchSettings()}
+                style={{ marginTop: SIZES.medium }}
+              />
+            </PeCard>
+          </View>
+        ) : loading && !refreshing ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}>
+              Синхронизация тарифов...
             </Text>
           </View>
-        </View>
-      </View>
-
-      {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
-      {error ? (
-        <View style={styles.centerContainer}>
-          <PeCard style={styles.errorCard}>
-            <AlertCircle
-              color={COLORS.danger}
-              size={32}
-              style={{ marginBottom: SIZES.small }}
-            />
-            <Text style={styles.errorText}>{error}</Text>
-            <PeButton
-              title="Повторить попытку"
-              variant="secondary"
-              onPress={() => fetchSettings()}
-              style={{ marginTop: SIZES.medium }}
-            />
-          </PeCard>
-        </View>
-      ) : loading && !refreshing ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}>
-            Синхронизация тарифов...
-          </Text>
-        </View>
-      ) : (
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={COLORS.primary}
-              />
-            }
-          >
-            {pricelist.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={GLOBAL_STYLES.textMuted}>
-                  Прайс-лист пуст или не настроен на сервере.
-                </Text>
-              </View>
-            ) : (
-              pricelist.map((section, catIdx) => (
-                <View key={`cat-${catIdx}`} style={styles.categoryBlock}>
-                  {/* Заголовок категории */}
-                  <View style={styles.categoryHeader}>
-                    <Text style={styles.categoryTitle}>{section.category}</Text>
-                  </View>
-
-                  {/* Карточка с инпутами для этой категории (elevated v11.0) */}
-                  <PeCard elevated={true} style={styles.itemsCard}>
-                    {section.items.map((item, itemIdx) => (
-                      <View key={`item-${item.key}`} style={styles.itemRow}>
-                        {/* Название и единица измерения */}
-                        <View style={styles.itemInfo}>
-                          <Text style={GLOBAL_STYLES.textBody}>
-                            {item.name}
-                          </Text>
-                          <Text style={GLOBAL_STYLES.textSmall}>
-                            за {item.unit}
-                          </Text>
-                        </View>
-
-                        {/* Поле ввода цены */}
-                        <View style={styles.inputWrapper}>
-                          <PeInput
-                            value={String(item.currentPrice)}
-                            onChangeText={(val) =>
-                              handlePriceChange(catIdx, itemIdx, val)
-                            }
-                            keyboardType="numeric"
-                            style={{ marginBottom: 0 }}
-                            placeholder="0"
-                          />
-                        </View>
-                      </View>
-                    ))}
-                  </PeCard>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={COLORS.primary}
+                />
+              }
+            >
+              {pricelist.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={GLOBAL_STYLES.textMuted}>
+                    Прайс-лист пуст или не настроен на сервере.
+                  </Text>
                 </View>
-              ))
+              ) : (
+                pricelist.map((section, catIdx) => (
+                  <View key={`cat-${catIdx}`} style={styles.categoryBlock}>
+                    {/* Заголовок категории */}
+                    <View style={styles.categoryHeader}>
+                      <Text style={styles.categoryTitle}>{section.category}</Text>
+                    </View>
+
+                    {/* Карточка с инпутами для этой категории (OLED design) */}
+                    <PeCard elevated={false} style={styles.itemsCard}>
+                      {section.items.map((item, itemIdx) => (
+                        <View key={`item-${item.key}`} style={styles.itemRow}>
+                          {/* Название и единица измерения */}
+                          <View style={styles.itemInfo}>
+                            <Text style={GLOBAL_STYLES.textBody}>
+                              {item.name}
+                            </Text>
+                            <Text style={GLOBAL_STYLES.textSmall}>
+                              за {item.unit}
+                            </Text>
+                          </View>
+
+                          {/* Поле ввода цены */}
+                          <View style={styles.inputWrapper}>
+                            <PeInput
+                              value={String(item.currentPrice)}
+                              onChangeText={(val) =>
+                                handlePriceChange(catIdx, itemIdx, val)
+                              }
+                              keyboardType="numeric"
+                              style={{ marginBottom: 0 }}
+                              placeholder="0"
+                            />
+                          </View>
+                        </View>
+                      ))}
+                    </PeCard>
+                  </View>
+                ))
+              )}
+
+              {/* Отступ под плавающую кнопку (чтобы контент не перекрывался) */}
+              <View style={{ height: 100 }} />
+            </ScrollView>
+
+            {/* 💾 ПЛАВАЮЩАЯ КНОПКА СОХРАНЕНИЯ (FLOATING ACTION BUTTON) */}
+            {pricelist.length > 0 && (
+              <View style={styles.fabContainer}>
+                <PeButton
+                  title="Сохранить прайс-лист"
+                  icon={<Save color="#000" size={20} />}
+                  onPress={handleSaveSettings}
+                  loading={saving}
+                  variant="success"
+                  style={styles.fabGlow}
+                />
+              </View>
             )}
-
-            {/* Отступ под плавающую кнопку (чтобы контент не перекрывался) */}
-            <View style={{ height: 100 }} />
-          </ScrollView>
-
-          {/* 💾 ПЛАВАЮЩАЯ КНОПКА СОХРАНЕНИЯ (FLOATING ACTION BUTTON) */}
-          {pricelist.length > 0 && (
-            <View style={styles.fabContainer}>
-              <PeButton
-                title="Сохранить прайс-лист"
-                icon={<Save color="#fff" size={20} />}
-                onPress={handleSaveSettings}
-                loading={saving}
-                variant="success"
-                style={styles.fabGlow}
-              />
-            </View>
-          )}
-        </View>
-      )}
-    </KeyboardAvoidingView>
+          </View>
+        )}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -249,17 +255,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background, // Строгий OLED черный фон
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    ...SHADOWS.light,
     zIndex: 10,
   },
   iconWrapper: {
     width: 44,
     height: 44,
     borderRadius: SIZES.radiusMd,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.1)", // Фирменный оранжевый акцент
     justifyContent: "center",
     alignItems: "center",
     marginRight: SIZES.medium,
@@ -311,7 +316,7 @@ const styles = StyleSheet.create({
     right: SIZES.large,
   },
   fabGlow: {
-    ...SHADOWS.glow, // Подключаем неоновое свечение для кнопки сохранения
+    ...SHADOWS.glow,
     shadowColor: COLORS.success,
   },
 

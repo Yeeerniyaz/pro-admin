@@ -1,8 +1,10 @@
 /**
  * @file src/screens/FinanceScreen.js
- * @description Экран Глобальной Кассы (PROADMIN Mobile v11.1.2).
- * ДИЗАЙН: Компактные неоновые виджеты (v11.1.0).
- * ФУНКЦИОНАЛ: Выбор счета + Фиксированные категории (Зарплата, Аренда и т.д.).
+ * @description Экран Глобальной Кассы (PROADMIN Mobile v11.0.14 Enterprise).
+ * ДОБАВЛЕНО: Разделение категорий на Расходы (OPEX/CAPEX) и Доходы (Синхронизация с Web CRM).
+ * ДОБАВЛЕНО: Динамическая смена чипсов при переключении типа операции.
+ * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки вместо теней).
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (FlatList, API, Modal) сохранена на 100%.
  *
  * @module FinanceScreen
  */
@@ -35,13 +37,23 @@ import { API } from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
-// Константы категорий
-const FIXED_CATEGORIES = [
-  "Зарплата",
-  "Аренда",
-  "Реклама",
-  "Инструмент",
-  "Налоги",
+// 🔥 УМНЫЕ КАТЕГОРИИ (Синхронизированы с Web CRM)
+const EXPENSE_CATEGORIES = [
+  "Материалы",
+  "Инструмент и Оборудование",
+  "Транспорт / ГСМ",
+  "Зарплата / Аванс",
+  "Аренда и Офис",
+  "Реклама и Маркетинг",
+  "Налоги и Сборы",
+  "Непредвиденные расходы",
+  "Прочее",
+];
+
+const INCOME_CATEGORIES = [
+  "Оплата от клиента",
+  "Инкассация (от бригады)",
+  "Инвестиции",
   "Прочее",
 ];
 
@@ -77,6 +89,9 @@ export default function FinanceScreen() {
   const [txCategory, setTxCategory] = useState("Прочее");
   const [txComment, setTxComment] = useState("");
   const [txLoading, setTxLoading] = useState(false);
+
+  // Динамический список категорий в зависимости от типа транзакции
+  const activeCategories = txType === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
 
   const fetchFinanceData = async (isRefresh = false) => {
     try {
@@ -191,7 +206,7 @@ export default function FinanceScreen() {
   const renderTransactionItem = ({ item }) => {
     const isIncome = item.type === "income";
     return (
-      <PeCard elevated={true} style={styles.txCard}>
+      <PeCard elevated={false} style={styles.txCard}>
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
             <View
@@ -218,7 +233,7 @@ export default function FinanceScreen() {
             <Text style={styles.txAccName}>{item.account_name}</Text>
           </View>
         </View>
-        {item.comment && <Text style={styles.txComment}>{item.comment}</Text>}
+        {item.comment ? <Text style={styles.txComment}>{item.comment}</Text> : null}
       </PeCard>
     );
   };
@@ -240,6 +255,12 @@ export default function FinanceScreen() {
           <PlusCircle color="#fff" size={24} />
         </TouchableOpacity>
       </View>
+
+      {error && (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
       {loading && !refreshing ? (
         <View style={GLOBAL_STYLES.center}>
@@ -270,20 +291,22 @@ export default function FinanceScreen() {
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHead}>
-              <Text style={GLOBAL_STYLES.h2}>Операция</Text>
+              <Text style={GLOBAL_STYLES.h2}>Новая операция</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <X color={COLORS.textMuted} size={28} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+
+              {/* Переключатель Доход/Расход */}
               <View style={styles.typeSelector}>
                 <TouchableOpacity
                   style={[
                     styles.typeBtn,
                     txType === "expense" && { backgroundColor: COLORS.danger },
                   ]}
-                  onPress={() => setTxType("expense")}
+                  onPress={() => { setTxType("expense"); setTxCategory("Прочее"); }}
                 >
                   <Text style={styles.typeText}>Расход</Text>
                 </TouchableOpacity>
@@ -292,7 +315,7 @@ export default function FinanceScreen() {
                     styles.typeBtn,
                     txType === "income" && { backgroundColor: COLORS.success },
                   ]}
-                  onPress={() => setTxType("income")}
+                  onPress={() => { setTxType("income"); setTxCategory("Прочее"); }}
                 >
                   <Text style={styles.typeText}>Доход</Text>
                 </TouchableOpacity>
@@ -323,9 +346,9 @@ export default function FinanceScreen() {
                 ))}
               </View>
 
-              <Text style={styles.inputLabel}>Категория</Text>
+              <Text style={styles.inputLabel}>Категория ({txType === 'expense' ? 'OPEX/CAPEX' : 'Revenue'})</Text>
               <View style={styles.chipContainer}>
-                {FIXED_CATEGORIES.map((cat) => (
+                {activeCategories.map((cat) => (
                   <TouchableOpacity
                     key={cat}
                     style={[
@@ -370,12 +393,13 @@ export default function FinanceScreen() {
               <PeButton
                 title={
                   txType === "expense"
-                    ? "Подтвердить расход"
-                    : "Подтвердить доход"
+                    ? "Провести расход"
+                    : "Провести доход"
                 }
                 variant={txType === "expense" ? "danger" : "success"}
                 onPress={handleTransactionSubmit}
                 loading={txLoading}
+                style={{ marginTop: SIZES.base }}
               />
             </ScrollView>
           </View>
@@ -390,12 +414,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
-    backgroundColor: COLORS.surface,
+    padding: SIZES.large,
+    backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  headerTitle: { fontSize: 20, fontWeight: "800", color: COLORS.textMain },
+  headerTitle: { fontSize: SIZES.fontTitle, fontWeight: "800", color: COLORS.textMain },
   headerSub: {
     fontSize: 10,
     color: COLORS.textMuted,
@@ -405,48 +429,50 @@ const styles = StyleSheet.create({
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: SIZES.radiusSm,
     backgroundColor: COLORS.primary,
     justifyContent: "center",
     alignItems: "center",
     ...SHADOWS.glow,
   },
 
-  accountsWrapper: { paddingVertical: 15 },
-  accountsScroll: { paddingHorizontal: 20, gap: 12 },
+  accountsWrapper: { paddingVertical: SIZES.medium },
+  accountsScroll: { paddingHorizontal: SIZES.large, gap: SIZES.small },
   miniAccountCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.surfaceElevated,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SIZES.medium,
+    paddingHorizontal: SIZES.large,
+    borderRadius: SIZES.radiusSm,
     borderLeftWidth: 4,
     minWidth: 160,
   },
-  miniAccIcon: { marginRight: 10, opacity: 0.6 },
+  miniAccIcon: { marginRight: SIZES.small, opacity: 0.6 },
   miniAccName: {
     fontSize: 10,
     color: COLORS.textMuted,
     textTransform: "uppercase",
   },
-  miniAccBalance: { fontSize: 16, fontWeight: "700" },
+  miniAccBalance: { fontSize: SIZES.fontMedium, fontWeight: "700", color: COLORS.textMain },
 
-  listContent: { paddingHorizontal: 20, paddingBottom: 120 },
-  txCard: { padding: 15, marginBottom: 10 },
-  txIndicator: { width: 3, height: 24, borderRadius: 2, marginRight: 12 },
-  txTitle: { fontSize: 15, fontWeight: "600", color: COLORS.textMain },
+  listContent: { paddingHorizontal: SIZES.large, paddingBottom: 120 },
+  txCard: { padding: SIZES.medium, marginBottom: SIZES.small },
+  txIndicator: { width: 3, height: 24, borderRadius: 2, marginRight: SIZES.small },
+  txTitle: { fontSize: SIZES.fontBase, fontWeight: "600", color: COLORS.textMain },
   txSub: { fontSize: 10, color: COLORS.textMuted },
-  txPrice: { fontSize: 15, fontWeight: "700" },
+  txPrice: { fontSize: SIZES.fontBase, fontWeight: "700" },
   txAccName: { fontSize: 10, color: COLORS.textMuted },
   txComment: {
-    marginTop: 10,
-    fontSize: 12,
+    marginTop: SIZES.medium,
+    fontSize: SIZES.fontSmall,
     color: COLORS.textMuted,
     fontStyle: "italic",
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    paddingTop: 10,
+    paddingTop: SIZES.small,
   },
 
   modalBack: {
@@ -456,64 +482,84 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    padding: 25,
+    borderTopLeftRadius: SIZES.radiusLg,
+    borderTopRightRadius: SIZES.radiusLg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    padding: SIZES.large,
     maxHeight: "90%",
   },
   modalHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: SIZES.large,
   },
 
   typeSelector: {
     flexDirection: "row",
     backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 12,
+    borderRadius: SIZES.radiusSm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     padding: 4,
-    marginBottom: 20,
+    marginBottom: SIZES.large,
   },
   typeBtn: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: SIZES.small,
     alignItems: "center",
-    borderRadius: 10,
+    borderRadius: SIZES.radiusSm,
   },
   typeText: {
     fontWeight: "800",
-    color: "#fff",
+    color: COLORS.textMain,
     textTransform: "uppercase",
-    fontSize: 12,
+    fontSize: SIZES.fontSmall,
   },
 
   inputLabel: {
     color: COLORS.textMuted,
     fontSize: 11,
-    marginBottom: 8,
+    marginBottom: SIZES.base,
     textTransform: "uppercase",
     fontWeight: "700",
   },
   chipContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 20,
+    gap: SIZES.base,
+    marginBottom: SIZES.large,
   },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    paddingVertical: SIZES.base,
+    paddingHorizontal: SIZES.small,
+    borderRadius: SIZES.radiusSm,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.surfaceElevated,
   },
   chipActive: {
     borderColor: COLORS.primary,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.15)",
   },
-  chipText: { color: COLORS.textMuted, fontSize: 12, fontWeight: "600" },
+  chipText: { color: COLORS.textMuted, fontSize: SIZES.fontSmall, fontWeight: "600" },
+
+  errorBox: {
+    marginHorizontal: SIZES.large,
+    marginTop: SIZES.medium,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    padding: SIZES.small,
+    borderRadius: SIZES.radiusSm,
+    alignItems: "center",
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: SIZES.fontSmall,
+    textAlign: "center",
+  },
 });

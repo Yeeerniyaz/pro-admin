@@ -1,8 +1,11 @@
 /**
  * @file src/screens/BroadcastScreen.js
- * @description Центр уведомлений и рассылок (PROADMIN Mobile v11.0.0).
+ * @description Центр уведомлений и рассылок (PROADMIN Mobile v11.0.18 Enterprise).
  * Интеграция с Telegram-ботом: позволяет админу делать массовые рассылки пользователям по ролям.
- * ДОБАВЛЕНО: Глубокие тени (elevated), плавающая шапка, неоновое свечение элементов (Glow).
+ * ДОБАВЛЕНО: Кнопка "Назад" для корректной навигации в стеке (возврат на UsersScreen).
+ * ДОБАВЛЕНО: SafeAreaView для защиты верстки от системных элементов ОС.
+ * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки, оранжевые акценты).
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (API, Confirm Dialog, State) сохранена на 100%.
  *
  * @module BroadcastScreen
  */
@@ -20,12 +23,14 @@ import {
   TouchableWithoutFeedback,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context"; // 🔥 Защита от челок
 import {
   Radio,
   Send,
   Users,
   ShieldAlert,
   Image as ImageIcon,
+  ArrowLeft, // 🔥 Иконка для кнопки назад
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -52,7 +57,7 @@ const TARGET_OPTIONS = [
   },
 ];
 
-export default function BroadcastScreen() {
+export default function BroadcastScreen({ navigation }) {
   // Стейты формы
   const [targetRole, setTargetRole] = useState("all");
   const [message, setMessage] = useState("");
@@ -98,6 +103,7 @@ export default function BroadcastScreen() {
       Alert.alert(
         "Рассылка запущена",
         res.message || "Сообщения отправляются в фоновом режиме.",
+        [{ text: "Отлично", onPress: () => navigation.goBack() }] // Автоматический возврат после успеха
       );
 
       // Очищаем форму после успешной отправки
@@ -117,121 +123,133 @@ export default function BroadcastScreen() {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    <KeyboardAvoidingView
-      style={GLOBAL_STYLES.safeArea}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={{ flex: 1 }}>
-          {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
-          <View style={styles.header}>
-            <View style={GLOBAL_STYLES.rowCenter}>
-              <View style={styles.headerIcon}>
-                <Radio color={COLORS.primary} size={24} />
-              </View>
-              <View>
-                <Text style={GLOBAL_STYLES.h1}>Центр уведомлений</Text>
-                <Text style={GLOBAL_STYLES.textMuted}>
-                  Управление Telegram-рассылкой
-                </Text>
+    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1 }}>
+
+            {/* 🎩 ШАПКА ЭКРАНА (OLED Header) */}
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backBtn}
+                disabled={loading}
+              >
+                <ArrowLeft color={COLORS.textMain} size={24} />
+              </TouchableOpacity>
+
+              <View style={GLOBAL_STYLES.rowCenter}>
+                <View style={styles.headerIcon}>
+                  <Radio color={COLORS.primary} size={24} />
+                </View>
+                <View>
+                  <Text style={GLOBAL_STYLES.h2}>Уведомления</Text>
+                  <Text style={GLOBAL_STYLES.textMuted}>
+                    Telegram-рассылка
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
 
-          {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <PeCard elevated={true} style={{ padding: SIZES.large }}>
-              {/* 1. Выбор аудитории */}
-              <Text style={styles.sectionTitle}>1. Выберите аудиторию</Text>
-              <View style={styles.targetContainer}>
-                {TARGET_OPTIONS.map((opt) => {
-                  const isActive = targetRole === opt.id;
-                  return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      activeOpacity={0.7}
-                      onPress={() => setTargetRole(opt.id)}
-                      style={[
-                        styles.targetBtn,
-                        isActive && styles.targetBtnActive,
-                        isActive && SHADOWS.glow, // Подсветка активной роли
-                      ]}
-                    >
-                      {/* Клонируем иконку, чтобы покрасить ее, если она активна */}
-                      {React.cloneElement(opt.icon, {
-                        color: isActive ? COLORS.primary : COLORS.textMuted,
-                      })}
-                      <Text
+            {/* 📜 ОСНОВНОЙ КОНТЕНТ */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <PeCard elevated={false} style={styles.cardContainer}>
+                {/* 1. Выбор аудитории */}
+                <Text style={styles.sectionTitle}>1. Выберите аудиторию</Text>
+                <View style={styles.targetContainer}>
+                  {TARGET_OPTIONS.map((opt) => {
+                    const isActive = targetRole === opt.id;
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        activeOpacity={0.7}
+                        onPress={() => setTargetRole(opt.id)}
                         style={[
-                          styles.targetBtnText,
-                          isActive && styles.targetBtnTextActive,
+                          styles.targetBtn,
+                          isActive && styles.targetBtnActive,
                         ]}
                       >
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        {/* Клонируем иконку, чтобы покрасить ее, если она активна */}
+                        {React.cloneElement(opt.icon, {
+                          color: isActive ? COLORS.primary : COLORS.textMuted,
+                        })}
+                        <Text
+                          style={[
+                            styles.targetBtnText,
+                            isActive && styles.targetBtnTextActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
-              {/* 2. URL Картинки (Опционально) */}
-              <Text style={[styles.sectionTitle, { marginTop: SIZES.medium }]}>
-                2. Изображение (URL, опционально)
-              </Text>
-              <PeInput
-                value={imageUrl}
-                onChangeText={setImageUrl}
-                placeholder="https://example.com/image.jpg"
-                autoCapitalize="none"
-                autoCorrect={false}
-                icon={<ImageIcon color={COLORS.textMuted} size={18} />}
-              />
-
-              {/* 3. Текст рассылки */}
-              <Text style={styles.sectionTitle}>
-                3. Текст сообщения (поддерживает HTML)
-              </Text>
-              <View style={styles.textAreaContainer}>
-                <PeInput
-                  value={message}
-                  onChangeText={setMessage}
-                  placeholder="Введите текст рассылки. Например: <b>Внимание!</b> Скидки 20% на монтаж..."
-                  multiline={true}
-                  numberOfLines={8}
-                  style={styles.textArea}
-                  textAlignVertical="top"
-                />
-              </View>
-
-              {/* Инфо-блок */}
-              <View style={styles.infoBox}>
-                <Text style={GLOBAL_STYLES.textSmall}>
-                  Рассылка осуществляется через официального бота ProElectric.
-                  Доставка занимает время в зависимости от размера базы.
+                {/* 2. URL Картинки (Опционально) */}
+                <Text style={[styles.sectionTitle, { marginTop: SIZES.medium }]}>
+                  2. Изображение (URL, опционально)
                 </Text>
-              </View>
+                <PeInput
+                  value={imageUrl}
+                  onChangeText={setImageUrl}
+                  placeholder="https://example.com/image.jpg"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  icon={<ImageIcon color={COLORS.textMuted} size={18} />}
+                  editable={!loading}
+                />
 
-              {/* Кнопка запуска */}
-              <PeButton
-                title="Запустить рассылку"
-                variant="primary"
-                icon={<Send color="#fff" size={18} />}
-                onPress={handleSendBroadcast}
-                loading={loading}
-                style={[styles.glowButton, { marginTop: SIZES.large }]}
-              />
-            </PeCard>
+                {/* 3. Текст рассылки */}
+                <Text style={styles.sectionTitle}>
+                  3. Текст сообщения (поддерживает HTML)
+                </Text>
+                <View style={styles.textAreaContainer}>
+                  <PeInput
+                    value={message}
+                    onChangeText={setMessage}
+                    placeholder="Введите текст рассылки. Например: <b>Внимание!</b> Скидки 20% на монтаж..."
+                    multiline={true}
+                    numberOfLines={8}
+                    style={styles.textArea}
+                    textAlignVertical="top"
+                    editable={!loading}
+                  />
+                </View>
 
-            {/* Отступ для комфортного скролла над клавиатурой */}
-            <View style={{ height: 40 }} />
-          </ScrollView>
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+                {/* Инфо-блок */}
+                <View style={styles.infoBox}>
+                  <Text style={GLOBAL_STYLES.textSmall}>
+                    Рассылка осуществляется через официального бота ProElectric.
+                    Доставка занимает время в зависимости от размера базы.
+                  </Text>
+                </View>
+
+                {/* Кнопка запуска */}
+                <PeButton
+                  title="Запустить рассылку"
+                  variant="primary"
+                  icon={<Send color="#000" size={18} />}
+                  onPress={handleSendBroadcast}
+                  loading={loading}
+                  style={[styles.glowButton, { marginTop: SIZES.large }]}
+                />
+              </PeCard>
+
+              {/* Отступ для комфортного скролла над клавиатурой */}
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -240,27 +258,37 @@ export default function BroadcastScreen() {
 // =============================================================================
 const styles = StyleSheet.create({
   header: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background, // 🔥 Строгий черный OLED фон
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    ...SHADOWS.light,
     zIndex: 10,
+  },
+  backBtn: {
+    marginRight: SIZES.medium,
+    padding: SIZES.base,
+    marginLeft: -SIZES.base,
   },
   headerIcon: {
     width: 44,
     height: 44,
     borderRadius: SIZES.radiusMd,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.1)", // 🔥 Фирменный оранжевый акцент
     justifyContent: "center",
     alignItems: "center",
     marginRight: SIZES.medium,
-    ...SHADOWS.glow, // Свечение иконки в шапке
   },
   scrollContent: {
     padding: SIZES.large,
+  },
+  cardContainer: {
+    padding: SIZES.large,
+    borderWidth: 1, // 🔥 Строгая рамка вместо тени
+    borderColor: COLORS.border,
   },
   sectionTitle: {
     fontSize: SIZES.fontBase,
@@ -283,10 +311,10 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusMd,
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: COLORS.border,
   },
   targetBtnActive: {
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.05)", // 🔥 Оранжевый акцент выделения
     borderColor: COLORS.primary,
   },
   targetBtnText: {

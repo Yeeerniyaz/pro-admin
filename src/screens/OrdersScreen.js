@@ -1,13 +1,16 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v11.0.0).
+ * @description Экран реестра объектов (PROADMIN Mobile v11.0.11 Enterprise).
  * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
- * ДОБАВЛЕНО: Кнопка быстрого создания объекта (CreateOrder), система глубоких теней (elevated).
+ * ДОБАВЛЕНО: Строгий RBAC (Бригадиры не могут создавать заказы, динамические заголовки).
+ * ДОБАВЛЕНО: Интеграция с OLED Black & Orange дизайном (замена синих оттенков на оранжевые).
+ * ДОБАВЛЕНО: Отображение привязанной бригады или статуса "Биржа" прямо в карточке.
+ * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и RefreshControl сохранена.
  *
  * @module OrdersScreen
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useContext } from "react";
 import {
   View,
   Text,
@@ -24,12 +27,14 @@ import {
   Calendar,
   User,
   PlusCircle,
+  HardHat, // 🔥 Добавлена иконка для бригад
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
 import { PeCard, PeBadge } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
+import { AuthContext } from "../context/AuthContext"; // 🔥 Строгий импорт контекста
 
 const formatKZT = (num) => {
   const value = parseFloat(num) || 0;
@@ -56,6 +61,9 @@ const STATUS_FILTERS = [
 ];
 
 export default function OrdersScreen({ navigation }) {
+  const { user } = useContext(AuthContext); // Подключаем сессию для RBAC
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin';
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -108,8 +116,8 @@ export default function OrdersScreen({ navigation }) {
         activeOpacity={0.7}
         onPress={() => navigation.navigate("OrderDetail", { order: item })}
       >
-        {/* Используем elevated={true} для активации глубоких теней из v11.0 */}
-        <PeCard elevated={true} style={styles.orderCard}>
+        {/* 🔥 OLED Design: elevated={false} для строгих рамок без грязных теней */}
+        <PeCard elevated={false} style={styles.orderCard}>
           <View style={GLOBAL_STYLES.rowBetween}>
             <View style={GLOBAL_STYLES.rowCenter}>
               <Briefcase
@@ -128,7 +136,7 @@ export default function OrdersScreen({ navigation }) {
             <View style={{ flex: 1 }}>
               <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
                 <User
-                  color={COLORS.primary}
+                  color={COLORS.textMuted}
                   size={14}
                   style={{ marginRight: 6 }}
                 />
@@ -136,6 +144,19 @@ export default function OrdersScreen({ navigation }) {
                   {item.client_name || "Оффлайн клиент"}
                 </Text>
               </View>
+
+              {/* Вывод Бригады или Биржи */}
+              <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+                <HardHat
+                  color={item.brigade_name ? COLORS.warning : COLORS.primary}
+                  size={14}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[GLOBAL_STYLES.textSmall, { color: item.brigade_name ? COLORS.warning : COLORS.primary, fontWeight: '600' }]} numberOfLines={1}>
+                  {item.brigade_name ? item.brigade_name : "БИРЖА"}
+                </Text>
+              </View>
+
               <View style={GLOBAL_STYLES.rowCenter}>
                 <Calendar
                   color={COLORS.textMuted}
@@ -156,11 +177,11 @@ export default function OrdersScreen({ navigation }) {
 
           <View style={styles.footerRow}>
             <View>
-              <Text style={GLOBAL_STYLES.textSmall}>Прибыль:</Text>
+              <Text style={GLOBAL_STYLES.textSmall}>Сумма/Прибыль:</Text>
               <Text style={styles.profitText}>{formatKZT(netProfit)}</Text>
             </View>
             <View style={styles.actionButton}>
-              <Text style={styles.actionText}>Управление</Text>
+              <Text style={styles.actionText}>Открыть</Text>
               <ChevronRight color={COLORS.primary} size={16} />
             </View>
           </View>
@@ -177,15 +198,18 @@ export default function OrdersScreen({ navigation }) {
       {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ СОЗДАНИЯ */}
       <View style={[styles.header, GLOBAL_STYLES.rowBetween]}>
         <View>
-          <Text style={GLOBAL_STYLES.h1}>Объекты</Text>
-          <Text style={GLOBAL_STYLES.textMuted}>Реестр и сметы</Text>
+          <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Объекты" : "Мои объекты"}</Text>
+          <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "Реестр и сметы" : "Объекты и Биржа"}</Text>
         </View>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("CreateOrder")}
-          activeOpacity={0.7}
-        >
-          <PlusCircle color={COLORS.primary} size={32} />
-        </TouchableOpacity>
+        {/* Кнопка создания заказа доступна только Администраторам */}
+        {isAdmin && (
+          <TouchableOpacity
+            onPress={() => navigation.navigate("CreateOrder")}
+            activeOpacity={0.7}
+          >
+            <PlusCircle color={COLORS.primary} size={32} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Горизонтальный скролл) */}
@@ -228,7 +252,7 @@ export default function OrdersScreen({ navigation }) {
             onPress={() => fetchOrders()}
             style={{ marginTop: 10 }}
           >
-            <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
+            <Text style={{ color: COLORS.primary, fontWeight: '600' }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
       ) : loading && !refreshing ? (
@@ -284,7 +308,6 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
     paddingBottom: SIZES.small,
     backgroundColor: COLORS.background,
-    ...SHADOWS.light, // Легкая тень, чтобы отделить фильтры от контента
     zIndex: 10,
   },
   filtersScrollContent: {
@@ -297,10 +320,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: COLORS.border,
   },
   filterPillActive: {
-    backgroundColor: "rgba(59, 130, 246, 0.15)",
+    backgroundColor: "rgba(255, 107, 0, 0.15)", // Оранжевый OLED акцент
     borderColor: COLORS.primary,
   },
   filterText: {
@@ -309,7 +332,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   filterTextActive: {
-    color: COLORS.primary,
+    color: COLORS.primary, // Оранжевый текст
   },
   listContent: {
     padding: SIZES.large,
@@ -341,7 +364,7 @@ const styles = StyleSheet.create({
     marginTop: SIZES.medium,
     paddingTop: SIZES.small,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)",
+    borderTopColor: COLORS.border,
   },
   profitText: {
     fontSize: SIZES.fontMedium,
@@ -351,10 +374,10 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.1)", // Оранжевый фон кнопки
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: SIZES.radiusSm,
+    borderRadius: SIZES.radiusSm, // Строгие углы
   },
   actionText: {
     color: COLORS.primary,
