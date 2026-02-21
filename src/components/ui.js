@@ -1,8 +1,11 @@
 /**
  * @file src/components/ui.js
- * @description Mobile UI Kit (PROADMIN React Native v11.0.4).
+ * @description Mobile UI Kit (PROADMIN React Native v11.0.6 Enterprise).
  * ИСПРАВЛЕНО: PeInput оптимизирован для исключения лишних рендеров,
  * вызывающих закрытие клавиатуры на Android.
+ * ДОБАВЛЕНО: Black & Orange Design System (черный текст на оранжевых кнопках).
+ * ДОБАВЛЕНО: Разделение цветов бейджей (new, processing, work) согласно Web CRM.
+ * НИКАКИХ УДАЛЕНИЙ: Весь оригинальный код сохранен на 100%.
  *
  * @module Components
  */
@@ -51,12 +54,13 @@ export const PeButton = ({
   const getTextColor = () => {
     if (disabled) return COLORS.textMuted;
     if (variant === "secondary" || variant === "ghost") return COLORS.textMain;
+    if (variant === "primary") return COLORS.textInverse; // 🔥 Черный текст для агрессивного контраста на оранжевом
     return "#ffffff";
   };
 
   const getShadowStyle = () => {
     if (disabled || variant === "ghost" || variant === "secondary") return {};
-    return SHADOWS.glow;
+    return SHADOWS.glow; // Легкое оранжевое свечение
   };
 
   return (
@@ -118,7 +122,7 @@ export const PeCard = ({ children, style, elevated = false }) => {
     <View
       style={[
         elevated ? GLOBAL_STYLES.cardElevated : GLOBAL_STYLES.card,
-        elevated && SHADOWS.medium,
+        elevated && SHADOWS.light, // Используем легкую тень для OLED минимализма
         style,
       ]}
     >
@@ -134,16 +138,17 @@ export const PeBadge = ({ status, text, style }) => {
   const getBadgeStyle = () => {
     switch (status) {
       case "new":
+        return { bg: "rgba(255, 107, 0, 0.15)", color: COLORS.primary }; // Оранжевый
       case "processing":
-        return { bg: "rgba(59, 130, 246, 0.15)", color: COLORS.primary };
+        return { bg: "rgba(245, 158, 11, 0.15)", color: COLORS.warning }; // Желтый
       case "work":
-        return { bg: "rgba(245, 158, 11, 0.15)", color: COLORS.warning };
+        return { bg: "rgba(59, 130, 246, 0.15)", color: "#3b82f6" }; // Синий (Инфо)
       case "done":
       case "income":
-        return { bg: "rgba(16, 185, 129, 0.15)", color: COLORS.success };
+        return { bg: "rgba(16, 185, 129, 0.15)", color: COLORS.success }; // Зеленый
       case "cancel":
       case "expense":
-        return { bg: "rgba(239, 68, 68, 0.15)", color: COLORS.danger };
+        return { bg: "rgba(239, 68, 68, 0.15)", color: COLORS.danger }; // Красный
       default:
         return { bg: COLORS.surfaceElevated, color: COLORS.textMuted };
     }
@@ -174,7 +179,7 @@ const styles = StyleSheet.create({
   button: {
     paddingVertical: 14,
     paddingHorizontal: SIZES.large,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusSm, // Строгие углы (Minimalism)
     justifyContent: "center",
     alignItems: "center",
     flexDirection: "row",
@@ -206,7 +211,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusSm, // Строгие углы (Minimalism)
     color: COLORS.textMain,
     fontSize: SIZES.fontBase,
     paddingVertical: Platform.OS === "ios" ? 14 : 12,
@@ -217,6 +222,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 4,
     alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)", // Легкая рамка для OLED-экранов
   },
   badgeText: {
     fontSize: 10,

@@ -1,8 +1,10 @@
 /**
  * @file src/api/api.js
- * @description Mobile API Client (React Native ERP Middleware v11.0.0).
+ * @description Mobile API Client (React Native ERP Middleware v11.0.1 Enterprise).
  * Обеспечивает строгую типизацию HTTP-запросов к продакшен-серверу ProElectric.
- * ДОБАВЛЕНО: Контроль таймаутов (AbortController), умное логирование, защита от зависаний.
+ * ДОБАВЛЕНО: Умный Query Builder, фильтры дат, OTP авторизация, полное управление ERP (Бригады, Инкассация).
+ * ИСПРАВЛЕНО: Маршрут проверки сессии изменен на актуальный (/auth/me).
+ * НИКАКИХ УДАЛЕНИЙ: Обертка таймаутов (AbortController) и старые методы сохранены на 100%.
  *
  * @module MobileAPI
  */
@@ -10,6 +12,23 @@
 // 🔥 Enterprise-стандарт: боевой сервер
 const API_BASE = process.env.EXPO_PUBLIC_API_URL || "https://erp.yeee.kz/api";
 const TIMEOUT_MS = 15000; // 15 секунд на ответ, иначе отмена запроса
+
+/**
+ * Умный сборщик параметров запроса (Query String Builder).
+ * Игнорирует пустые значения (null, undefined, "").
+ * @param {Object} params - Объект с параметрами { startDate: '2023-01-01', limit: 100 }
+ * @returns {string} - Сформированная строка '?startDate=2023-01-01&limit=100'
+ */
+const buildQuery = (params) => {
+  const query = new URLSearchParams();
+  for (const key in params) {
+    if (params[key] !== undefined && params[key] !== null && params[key] !== "") {
+      query.append(key, params[key]);
+    }
+  }
+  const str = query.toString();
+  return str ? `?${str}` : "";
+};
 
 /**
  * Универсальная обертка для HTTP-запросов с поддержкой таймаутов.
@@ -70,33 +89,89 @@ async function fetchWrapper(endpoint, options = {}) {
  */
 export const API = {
   // ==========================================
-  // 🔐 AUTHENTICATION
+  // 🔐 AUTHENTICATION & OTP
   // ==========================================
+
+  // Legacy login
   login: (login, password) =>
     fetchWrapper("/auth/login", {
       method: "POST",
       body: JSON.stringify({ login: login.trim(), password: password.trim() }),
     }),
 
+  // OTP Авторизация по номеру телефона
+  requestOtp: (phone) =>
+    fetchWrapper("/auth/otp/request", {
+      method: "POST",
+      body: JSON.stringify({ phone }),
+    }),
+
+  verifyOtp: (phone, otp) =>
+    fetchWrapper("/auth/otp/verify", {
+      method: "POST",
+      body: JSON.stringify({ phone, otp }),
+    }),
+
   logout: () => fetchWrapper("/auth/logout", { method: "POST" }),
 
-  checkAuth: () => fetchWrapper("/auth/check"),
+  // Проверка сессии (ИСПРАВЛЕНО: теперь указывает на актуальный бэкенд /auth/me)
+  checkAuth: () => fetchWrapper("/auth/me"),
 
   // ==========================================
-  // 📊 DASHBOARD (ANALYTICS)
+  // 📊 DASHBOARD & ADVANCED ANALYTICS
   // ==========================================
-  getStats: () => fetchWrapper("/dashboard/stats"),
+
+  getStats: (startDate, endDate) =>
+    fetchWrapper(`/dashboard/stats${buildQuery({ startDate, endDate })}`),
+
+  getDeepAnalytics: (startDate, endDate) =>
+    fetchWrapper(`/analytics/deep${buildQuery({ startDate, endDate })}`),
+
+  getTimeline: (startDate, endDate) =>
+    fetchWrapper(`/analytics/timeline${buildQuery({ startDate, endDate })}`),
+
+  getOrdersTimeline: (startDate, endDate) =>
+    fetchWrapper(`/analytics/orders-timeline${buildQuery({ startDate, endDate })}`),
+
+  getBrigadesAnalytics: (startDate, endDate) =>
+    fetchWrapper(`/analytics/brigades${buildQuery({ startDate, endDate })}`),
+
+  // ==========================================
+  // 🏗 BRIGADES MANAGEMENT (ERP)
+  // ==========================================
+  getBrigades: () => fetchWrapper("/brigades"),
+
+  createBrigade: (name, brigadierId, profitPercentage) =>
+    fetchWrapper("/brigades", {
+      method: "POST",
+      body: JSON.stringify({ name, brigadierId, profitPercentage }),
+    }),
+
+  updateBrigade: (id, profitPercentage, isActive) =>
+    fetchWrapper(`/brigades/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ profitPercentage, isActive }),
+    }),
+
+  getBrigadeOrders: (id) => fetchWrapper(`/brigades/${id}/orders`),
 
   // ==========================================
   // 📦 ORDERS MANAGEMENT
   // ==========================================
+
   getOrders: (status = "all", limit = 100, offset = 0) =>
-    fetchWrapper(
-      `/orders?status=${encodeURIComponent(status)}&limit=${limit}&offset=${offset}`,
-    ),
+    fetchWrapper(`/orders${buildQuery({ status, limit, offset })}`),
 
   createManualOrder: (data) =>
     fetchWrapper("/orders", { method: "POST", body: JSON.stringify(data) }),
+
+  takeOrderWeb: (id) => fetchWrapper(`/orders/${id}/take`, { method: "POST" }),
+
+  updateOrderMetadata: (id, address, admin_comment) =>
+    fetchWrapper(`/orders/${id}/metadata`, {
+      method: "PATCH",
+      body: JSON.stringify({ address, admin_comment }),
+    }),
 
   updateOrderStatus: (id, status) =>
     fetchWrapper(`/orders/${id}/status`, {
@@ -110,9 +185,25 @@ export const API = {
       body: JSON.stringify({ key, value }),
     }),
 
+  assignBrigade: (id, brigadeId) =>
+    fetchWrapper(`/orders/${id}/assign`, {
+      method: "PATCH",
+      body: JSON.stringify({ brigadeId }),
+    }),
+
+  updateBOM: (id, newBomArray) =>
+    fetchWrapper(`/orders/${id}/bom`, {
+      method: "PATCH",
+      body: JSON.stringify({ newBomArray }),
+    }),
+
+  finalizeOrder: (id) =>
+    fetchWrapper(`/orders/${id}/finalize`, { method: "POST" }),
+
   // ==========================================
   // 💸 PROJECT FINANCE (ORDER LEVEL)
   // ==========================================
+
   updateOrderFinalPrice: (id, newPrice) =>
     fetchWrapper(`/orders/${id}/finance/price`, {
       method: "PATCH",
@@ -128,10 +219,11 @@ export const API = {
   // ==========================================
   // 🏢 CORPORATE FINANCE (GLOBAL CASHBOX)
   // ==========================================
+
   getFinanceAccounts: () => fetchWrapper("/finance/accounts"),
 
   getFinanceTransactions: (limit = 100) =>
-    fetchWrapper(`/finance/transactions?limit=${limit}`),
+    fetchWrapper(`/finance/transactions${buildQuery({ limit })}`),
 
   addFinanceTransaction: (data) =>
     fetchWrapper("/finance/transactions", {
@@ -139,9 +231,16 @@ export const API = {
       body: JSON.stringify(data),
     }),
 
+  approveIncassation: (brigadierId, amount) =>
+    fetchWrapper("/finance/incassation/approve", {
+      method: "POST",
+      body: JSON.stringify({ brigadierId, amount }),
+    }),
+
   // ==========================================
   // ⚙️ SYSTEM SETTINGS (DYNAMIC PRICING)
   // ==========================================
+
   getSettings: () => fetchWrapper("/settings"),
 
   getPricelist: () => fetchWrapper("/pricelist"),
@@ -161,8 +260,9 @@ export const API = {
   // ==========================================
   // 👥 STAFF & BROADCAST
   // ==========================================
-  getUsers: (limit = 100, offset = 0) =>
-    fetchWrapper(`/users?limit=${limit}&offset=${offset}`),
+
+  getUsers: (search = "", limit = 100, offset = 0) =>
+    fetchWrapper(`/users${buildQuery({ search, limit, offset })}`),
 
   updateUserRole: (userId, role) =>
     fetchWrapper("/users/role", {

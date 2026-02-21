@@ -1,32 +1,41 @@
 {
-  "name": "pro-admin",
-  "version": "10.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
-    "clean": "expo start -c",
-    "lint": "eslint ."
-  },
-  "dependencies": {
-    "@react-navigation/bottom-tabs": "^6.5.20",
-    "@react-navigation/native": "^6.1.17",
-    "@react-navigation/native-stack": "^6.9.26",
-    "expo": "~51.0.8",
-    "expo-navigation-bar": "~3.0.0",
-    "expo-status-bar": "~1.12.1",
-    "lucide-react-native": "^0.344.0",
-    "react": "18.2.0",
-    "react-native": "0.74.1",
-    "react-native-gesture-handler": "~2.16.1",
-    "react-native-safe-area-context": "4.10.1",
-    "react-native-screens": "3.31.1",
-    "react-native-svg": "15.2.0"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.20.0"
-  },
-  "private": true
+  "expo": {
+    "name": "PROELECTRIC",
+    "slug": "pro-admin",
+    "version": "11.1.5",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#09090b",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090b"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "kz.yeee.proelectric"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#09090b"
+      },
+      "package": "kz.yeee.proelectric",
+      "permissions": [
+        "INTERNET"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "08531f97-55f2-4ceb-bec8-0fedef683055"
+      }
+    }
+  }
 }
