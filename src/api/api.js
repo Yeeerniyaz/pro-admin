@@ -1,9 +1,10 @@
 /**
  * @file src/api/api.js
- * @description Mobile API Client (React Native ERP Middleware v11.0.2 Enterprise).
+ * @description Mobile API Client (React Native ERP Middleware v12.0.1 Enterprise).
  * Обеспечивает строгую типизацию HTTP-запросов к продакшен-серверу ProElectric.
- * ДОБАВЛЕНО: Network Resilience (автоматический Retry для GET-запросов при обрывах связи в подвалах/на объектах).
- * ДОБАВЛЕНО: Эндпоинты для новой экосистемы (Фотоотчеты multipart/form-data, Аварийные вызовы, Умный дом).
+ * СТРУКТУРА СЕТИ НЕ ИЗМЕНЕНА: Network Resilience, Smart Retry, FormData для фото сохранены.
+ * 🔥 ДОБАВЛЕНО (v12.0): Эндпоинты для гибридного калькулятора (Global, Tariffs, Coefficients).
+ * 🔥 ДОБАВЛЕНО (v12.0): Эндпоинты мелкого ремонта, звонков, System Health и архивации заказов.
  * НИКАКИХ УДАЛЕНИЙ: Обертка таймаутов (AbortController) и все старые методы сохранены на 100%.
  *
  * @module MobileAPI
@@ -173,8 +174,14 @@ export const API = {
   getOrders: (status = "all", limit = 100, offset = 0) =>
     fetchWrapper(`/orders${buildQuery({ status, limit, offset })}`),
 
+  // 🔥 НОВОЕ: Deep Fetch заказа
+  getOrderById: (id) => fetchWrapper(`/orders/${id}`),
+
   createManualOrder: (data) =>
     fetchWrapper("/orders", { method: "POST", body: JSON.stringify(data) }),
+
+  // 🔥 НОВОЕ: Архивация (Soft Delete) заказа
+  deleteOrder: (id) => fetchWrapper(`/orders/${id}`, { method: "DELETE" }),
 
   takeOrderWeb: (id) => fetchWrapper(`/orders/${id}/take`, { method: "POST" }),
 
@@ -210,6 +217,28 @@ export const API = {
 
   finalizeOrder: (id) =>
     fetchWrapper(`/orders/${id}/finalize`, { method: "POST" }),
+
+  // ==========================================
+  // 🔧 MINOR REPAIRS & CALL REQUESTS (МЕЛКИЙ РЕМОНТ И ЗВОНКИ)
+  // ==========================================
+
+  getMinorRepairs: (limit = 100, offset = 0) =>
+    fetchWrapper(`/minor-repairs${buildQuery({ limit, offset })}`),
+
+  updateMinorRepairStatus: (id, status) =>
+    fetchWrapper(`/minor-repairs/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  getCallRequests: (limit = 100, offset = 0) =>
+    fetchWrapper(`/call-requests${buildQuery({ limit, offset })}`),
+
+  updateCallRequestStatus: (id, status) =>
+    fetchWrapper(`/call-requests/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 
   // ==========================================
   // 💸 PROJECT FINANCE (ORDER LEVEL)
@@ -248,9 +277,15 @@ export const API = {
       body: JSON.stringify({ brigadierId, amount }),
     }),
 
+  // 🔥 НОВОЕ: Экспорт транзакций
+  exportFinanceTransactions: () => fetchWrapper("/finance/export"),
+
   // ==========================================
-  // ⚙️ SYSTEM SETTINGS (DYNAMIC PRICING)
+  // ⚙️ SYSTEM SETTINGS & HYBRID CALCULATOR (v12)
   // ==========================================
+
+  // 🔥 НОВОЕ: Мониторинг здоровья системы
+  getSystemHealth: () => fetchWrapper("/system/health"),
 
   getSettings: () => fetchWrapper("/settings"),
 
@@ -266,6 +301,27 @@ export const API = {
     fetchWrapper("/settings", {
       method: "POST",
       body: JSON.stringify(payloadArray),
+    }),
+
+  downloadBackup: () => fetchWrapper("/system/backup"),
+
+  // 🔥 v12: Эндпоинты для управления гибридным калькулятором
+  updateGlobalSettings: (key, value) =>
+    fetchWrapper("/settings/global", {
+      method: "PATCH",
+      body: JSON.stringify({ key, value }),
+    }),
+
+  updateTariffs: (propertyType, basePriceSqm) =>
+    fetchWrapper("/settings/tariffs", {
+      method: "PATCH",
+      body: JSON.stringify({ propertyType, basePriceSqm }),
+    }),
+
+  updateCoefficients: (code, multiplier) =>
+    fetchWrapper("/settings/coefficients", {
+      method: "PATCH",
+      body: JSON.stringify({ code, multiplier }),
     }),
 
   // ==========================================
@@ -292,7 +348,7 @@ export const API = {
     }),
 
   // ==========================================
-  // 🔥 NEW ECOSYSTEM: PHOTOS & SMART HOME
+  // 🔥 ECOSYSTEM: PHOTOS & SMART HOME
   // ==========================================
 
   getOrderPhotos: (orderId) =>
