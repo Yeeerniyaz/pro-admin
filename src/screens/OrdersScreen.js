@@ -1,14 +1,15 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v11.0.16 Enterprise).
+ * @description Экран реестра объектов (PROADMIN Mobile v12.9.0 Enterprise).
  * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
- * ДОБАВЛЕНО: Отображение привязанной бригады прямо в карточке заказа.
- * ДОБАВЛЕНО: Строгий RBAC (Бригадиры не могут создавать заказы, динамические заголовки).
+ * 🔥 ДОБАВЛЕНО (v12.9.0): Глобальные вкладки для работы с "Мелким ремонтом" и "Запросами звонков".
+ * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * ДОБАВЛЕНО: Индикаторы "Умный дом" и "Тариф/Тип объекта" прямо в списке заказов.
  * ДОБАВЛЕНО: OLED-дизайн (строгие рамки, замена синих акцентов на оранжевые).
- * ОТКАТ: Убраны UI-индикаторы SOS и Умного дома (отложено до внедрения на бэкенде).
  * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и RefreshControl сохранена на 100%.
  *
  * @module OrdersScreen
+ * @version 12.9.0 (Multi-Pipeline & Top Margin Fix Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -21,6 +22,8 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
+  Modal,
+  Alert
 } from "react-native";
 import {
   Briefcase,
@@ -28,7 +31,11 @@ import {
   Calendar,
   User,
   PlusCircle,
-  HardHat, // Иконка для отображения Бригады
+  HardHat,
+  Cpu,
+  Layers,
+  Wrench, // Иконка для Мелкого ремонта
+  PhoneCall // Иконка для Звонков
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -65,52 +72,97 @@ export default function OrdersScreen({ navigation }) {
   const { user } = useContext(AuthContext); // Подключаем сессию для RBAC
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
+  // 🎛 Глобальное состояние вкладок (Комплекс / Мелкий / Звонки)
+  const [globalTab, setGlobalTab] = useState("complex");
+
   const [orders, setOrders] = useState([]);
+  const [minorRepairs, setMinorRepairs] = useState([]);
+  const [callRequests, setCallRequests] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState(null);
 
+  // Стейт для модалки смены статуса (Мелкий ремонт и Звонки)
+  const [statusModal, setStatusModal] = useState({ visible: false, id: null, type: null });
+
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ
+  // 📡 ЗАГРУЗКА ДАННЫХ В ЗАВИСИМОСТИ ОТ ВЫБРАННОЙ ВКЛАДКИ
   // =============================================================================
-  const fetchOrders = async (isRefresh = false) => {
+  const fetchData = async (isRefresh = false) => {
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      const data = await API.getOrders(statusFilter, 100, 0);
-      setOrders(data || []);
+      if (globalTab === "complex") {
+        const data = await API.getOrders(statusFilter, 100, 0);
+        setOrders(data || []);
+      } else if (globalTab === "minor") {
+        const data = await API.getMinorRepairs();
+        setMinorRepairs(data || []);
+      } else if (globalTab === "calls") {
+        const data = await API.getCallRequests();
+        setCallRequests(data || []);
+      }
     } catch (err) {
-      setError(err.message || "Ошибка загрузки реестра объектов");
+      setError(err.message || "Ошибка загрузки реестра");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Перезапрос при смене фильтра
+  // Перезапрос при смене вкладки или фильтра
   useEffect(() => {
-    fetchOrders();
-  }, [statusFilter]);
+    fetchData();
+  }, [statusFilter, globalTab]);
 
-  // Обработчик Pull-to-Refresh
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchOrders(true);
-  }, [statusFilter]);
+    fetchData(true);
+  }, [statusFilter, globalTab]);
 
   // =============================================================================
-  // 🧩 РЕНДЕР КАРТОЧКИ ЗАКАЗА (FLATLIST ITEM)
+  // 🔄 ОБРАБОТКА СТАТУСОВ ДЛЯ МЕЛКОГО РЕМОНТА И ЗВОНКОВ
   // =============================================================================
+  const openStatusModal = (id, type) => {
+    setStatusModal({ visible: true, id, type });
+  };
+
+  const applyStatus = async (newStatus) => {
+    const { id, type } = statusModal;
+    try {
+      setLoading(true);
+      setStatusModal({ visible: false, id: null, type: null });
+
+      if (type === 'minor') {
+        await API.updateMinorRepairStatus(id, newStatus);
+      } else if (type === 'call') {
+        await API.updateCallRequestStatus(id, newStatus);
+      }
+
+      fetchData(true); // Перезагружаем данные без лоадера на весь экран
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  // =============================================================================
+  // 🧩 РЕНДЕР КАРТОЧЕК (FLATLIST ITEMS)
+  // =============================================================================
+
+  // 1. Карточка Комплексного Заказа
   const renderOrderItem = ({ item }) => {
-    // Безопасное извлечение параметров (Graceful Degradation)
-    const area = item.area || item.details?.params?.area || 0;
+    const params = item.details?.params || {};
+    const area = item.area || params.area || 0;
+    const isSmartHome = params.isSmartHome === true;
+    const propTypeRaw = params.propertyType || 'apartment';
+    const propTypeName = propTypeRaw === 'house' ? 'Дом' : propTypeRaw === 'commercial' ? 'Коммерция' : 'Квартира';
+
     const financials = item.details?.financials || {};
-    const netProfit =
-      financials.net_profit !== undefined
-        ? financials.net_profit
-        : item.total_price;
+    const netProfit = financials.net_profit !== undefined ? financials.net_profit : item.total_price;
 
     return (
       <TouchableOpacity
@@ -120,11 +172,7 @@ export default function OrdersScreen({ navigation }) {
         <PeCard elevated={false} style={styles.orderCard}>
           <View style={GLOBAL_STYLES.rowBetween}>
             <View style={GLOBAL_STYLES.rowCenter}>
-              <Briefcase
-                color={COLORS.textMuted}
-                size={16}
-                style={{ marginRight: 6 }}
-              />
+              <Briefcase color={COLORS.textMuted} size={16} style={{ marginRight: 6 }} />
               <Text style={styles.orderId}>#{item.id}</Text>
             </View>
             <PeBadge status={item.status} />
@@ -135,37 +183,20 @@ export default function OrdersScreen({ navigation }) {
           <View style={GLOBAL_STYLES.rowBetween}>
             <View style={{ flex: 1 }}>
               <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
-                <User
-                  color={COLORS.textMuted}
-                  size={14}
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>
-                  {item.client_name || "Оффлайн клиент"}
-                </Text>
+                <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+                <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Оффлайн клиент"}</Text>
               </View>
 
-              {/* ВЫВОД БРИГАДЫ ИЛИ БИРЖИ */}
               <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
-                <HardHat
-                  color={item.brigade_name ? COLORS.warning : COLORS.primary}
-                  size={14}
-                  style={{ marginRight: 6 }}
-                />
+                <HardHat color={item.brigade_name ? COLORS.warning : COLORS.primary} size={14} style={{ marginRight: 6 }} />
                 <Text style={[GLOBAL_STYLES.textSmall, { color: item.brigade_name ? COLORS.warning : COLORS.primary, fontWeight: '600' }]} numberOfLines={1}>
                   {item.brigade_name ? item.brigade_name : "БИРЖА"}
                 </Text>
               </View>
 
               <View style={GLOBAL_STYLES.rowCenter}>
-                <Calendar
-                  color={COLORS.textMuted}
-                  size={14}
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={GLOBAL_STYLES.textSmall}>
-                  {formatDate(item.created_at)}
-                </Text>
+                <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+                <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
               </View>
             </View>
 
@@ -174,6 +205,21 @@ export default function OrdersScreen({ navigation }) {
               <Text style={styles.areaText}>{area} м²</Text>
             </View>
           </View>
+
+          {(area > 0) && (
+            <View style={styles.indicatorsRow}>
+              <View style={styles.indicatorPill}>
+                <Layers color={COLORS.textMuted} size={12} style={{ marginRight: 4 }} />
+                <Text style={styles.indicatorText}>{propTypeName}</Text>
+              </View>
+              {isSmartHome && (
+                <View style={[styles.indicatorPill, { borderColor: COLORS.primary, backgroundColor: 'rgba(255, 107, 0, 0.1)' }]}>
+                  <Cpu color={COLORS.primary} size={12} style={{ marginRight: 4 }} />
+                  <Text style={[styles.indicatorText, { color: COLORS.primary }]}>Smart Home</Text>
+                </View>
+              )}
+            </View>
+          )}
 
           <View style={styles.footerRow}>
             <View>
@@ -190,68 +236,153 @@ export default function OrdersScreen({ navigation }) {
     );
   };
 
+  // 2. Карточка Мелкого ремонта
+  const renderMinorItem = ({ item }) => (
+    <PeCard elevated={false} style={styles.orderCard}>
+      <View style={GLOBAL_STYLES.rowBetween}>
+        <View style={GLOBAL_STYLES.rowCenter}>
+          <Wrench color={COLORS.textMuted} size={16} style={{ marginRight: 6 }} />
+          <Text style={styles.orderId}>#{item.id}</Text>
+        </View>
+        <PeBadge status={item.status} />
+      </View>
+      <View style={styles.divider} />
+      <View style={GLOBAL_STYLES.rowBetween}>
+        <View style={{ flex: 1 }}>
+          <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+            <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+            <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Неизвестно"}</Text>
+          </View>
+          <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+            <PhoneCall color={COLORS.primary} size={14} style={{ marginRight: 6 }} />
+            <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600' }]}>{item.client_phone || "—"}</Text>
+          </View>
+          <View style={GLOBAL_STYLES.rowCenter}>
+            <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+            <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
+          </View>
+        </View>
+      </View>
+      <View style={[styles.divider, { marginVertical: 12 }]} />
+      <Text style={[GLOBAL_STYLES.textBody, { fontStyle: 'italic', marginBottom: SIZES.small }]}>"{item.description}"</Text>
+
+      {isAdmin && (
+        <View style={styles.footerRow}>
+          <View />
+          <TouchableOpacity style={styles.actionButton} onPress={() => openStatusModal(item.id, 'minor')}>
+            <Text style={styles.actionText}>Изменить статус</Text>
+            <ChevronRight color={COLORS.primary} size={16} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </PeCard>
+  );
+
+  // 3. Карточка Звонка
+  const renderCallItem = ({ item }) => (
+    <PeCard elevated={false} style={styles.orderCard}>
+      <View style={GLOBAL_STYLES.rowBetween}>
+        <View style={GLOBAL_STYLES.rowCenter}>
+          <PhoneCall color={COLORS.textMuted} size={16} style={{ marginRight: 6 }} />
+          <Text style={styles.orderId}>#{item.id}</Text>
+        </View>
+        <PeBadge status={item.status} />
+      </View>
+      <View style={styles.divider} />
+      <View style={GLOBAL_STYLES.rowBetween}>
+        <View style={{ flex: 1 }}>
+          <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+            <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+            <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Неизвестно"} {item.username ? `(@${item.username})` : ''}</Text>
+          </View>
+          <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+            <PhoneCall color={COLORS.primary} size={14} style={{ marginRight: 6 }} />
+            <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600' }]}>{item.client_phone || "—"}</Text>
+          </View>
+          <View style={GLOBAL_STYLES.rowCenter}>
+            <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+            <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
+          </View>
+        </View>
+      </View>
+      {isAdmin && (
+        <View style={styles.footerRow}>
+          <View />
+          <TouchableOpacity style={styles.actionButton} onPress={() => openStatusModal(item.id, 'call')}>
+            <Text style={styles.actionText}>Изменить статус</Text>
+            <ChevronRight color={COLORS.primary} size={16} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </PeCard>
+  );
+
   // =============================================================================
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
+    // 🔥 ИСПРАВЛЕНИЕ: Используем View вместо SafeAreaView для фикса черной полосы
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ СОЗДАНИЯ */}
+
+      {/* 🎩 ШАПКА ЭКРАНА */}
       <View style={[styles.header, GLOBAL_STYLES.rowBetween]}>
         <View>
           <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Объекты" : "Мои объекты"}</Text>
           <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "Реестр и сметы" : "Объекты и Биржа"}</Text>
         </View>
-        {/* Кнопка создания заказа доступна только Администраторам */}
         {isAdmin && (
-          <TouchableOpacity
-            onPress={() => navigation.navigate("CreateOrder")}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity onPress={() => navigation.navigate("CreateOrder")} activeOpacity={0.7}>
             <PlusCircle color={COLORS.primary} size={32} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Горизонтальный скролл) */}
-      <View style={styles.filtersContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersScrollContent}
-        >
-          {STATUS_FILTERS.map((filter) => {
-            const isActive = statusFilter === filter.id;
-            return (
-              <TouchableOpacity
-                key={filter.id}
-                style={[styles.filterPill, isActive && styles.filterPillActive]}
-                onPress={() => setStatusFilter(filter.id)}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    isActive && styles.filterTextActive,
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+      {/* 🗂 ГЛОБАЛЬНЫЕ ВКЛАДКИ (Комплекс / Мелкий / Звонки) */}
+      <View style={styles.globalTabsContainer}>
+        <TouchableOpacity style={[styles.globalTab, globalTab === 'complex' && styles.globalTabActive]} onPress={() => setGlobalTab('complex')}>
+          <Briefcase color={globalTab === 'complex' ? COLORS.primary : COLORS.textMuted} size={16} />
+          <Text style={[styles.globalTabText, globalTab === 'complex' && styles.globalTabTextActive]}>Комплекс</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.globalTab, globalTab === 'minor' && styles.globalTabActive]} onPress={() => setGlobalTab('minor')}>
+          <Wrench color={globalTab === 'minor' ? COLORS.primary : COLORS.textMuted} size={16} />
+          <Text style={[styles.globalTabText, globalTab === 'minor' && styles.globalTabTextActive]}>Мелкий</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.globalTab, globalTab === 'calls' && styles.globalTabActive]} onPress={() => setGlobalTab('calls')}>
+          <PhoneCall color={globalTab === 'calls' ? COLORS.primary : COLORS.textMuted} size={16} />
+          <Text style={[styles.globalTabText, globalTab === 'calls' && styles.globalTabTextActive]}>Звонки</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* 📜 СПИСОК ОБЪЕКТОВ (FLATLIST) */}
+      {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Показываем только для вкладки "Комплекс") */}
+      {globalTab === 'complex' && (
+        <View style={styles.filtersContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScrollContent}>
+            {STATUS_FILTERS.map((filter) => {
+              const isActive = statusFilter === filter.id;
+              return (
+                <TouchableOpacity
+                  key={filter.id}
+                  style={[styles.filterPill, isActive && styles.filterPillActive]}
+                  onPress={() => setStatusFilter(filter.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* 📜 СПИСОК (FLATLIST) */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => fetchOrders()}
-            style={{ marginTop: 10 }}
-          >
+          <TouchableOpacity onPress={() => fetchData()} style={{ marginTop: 10 }}>
             <Text style={{ color: COLORS.primary, fontWeight: '600' }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
@@ -261,34 +392,54 @@ export default function OrdersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={orders}
+          data={globalTab === 'complex' ? orders : globalTab === 'minor' ? minorRepairs : callRequests}
           keyExtractor={(item) => item.id.toString()}
-          renderItem={renderOrderItem}
+          renderItem={globalTab === 'complex' ? renderOrderItem : globalTab === 'minor' ? renderMinorItem : renderCallItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={COLORS.primary}
-              colors={[COLORS.primary]}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} colors={[COLORS.primary]} />
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Briefcase color={COLORS.surfaceHover} size={48} />
-              <Text
-                style={[
-                  GLOBAL_STYLES.textMuted,
-                  { marginTop: SIZES.medium, textAlign: "center" },
-                ]}
-              >
-                В этой категории пока нет объектов.
+              <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium, textAlign: "center" }]}>
+                В этой категории пока нет записей.
               </Text>
             </View>
           }
         />
       )}
+
+      {/* 🪟 МОДАЛЬНОЕ ОКНО ИЗМЕНЕНИЯ СТАТУСА (Для Мелкого ремонта и Звонков) */}
+      <Modal visible={statusModal.visible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContentSmall}>
+            <Text style={[GLOBAL_STYLES.h2, { marginBottom: SIZES.medium, textAlign: 'center' }]}>Изменить статус</Text>
+
+            {statusModal.type === 'minor' && (
+              <>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('new')}><Text style={styles.statusText}>Новый</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('processing')}><Text style={styles.statusText}>В работе</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('done')}><Text style={styles.statusText}>Завершен</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('cancel')}><Text style={styles.statusText}>Отменен</Text></TouchableOpacity>
+              </>
+            )}
+
+            {statusModal.type === 'call' && (
+              <>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('new')}><Text style={styles.statusText}>Ожидает звонка</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('processed')}><Text style={styles.statusText}>Обработан</Text></TouchableOpacity>
+              </>
+            )}
+
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setStatusModal({ visible: false, id: null, type: null })}>
+              <Text style={styles.cancelBtnText}>Закрыть</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -303,10 +454,43 @@ const styles = StyleSheet.create({
     paddingBottom: SIZES.medium,
     backgroundColor: COLORS.background,
   },
+  globalTabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: SIZES.large,
+    paddingVertical: SIZES.small,
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  globalTab: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.surfaceElevated,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: 'transparent'
+  },
+  globalTabActive: {
+    backgroundColor: 'rgba(255, 107, 0, 0.1)',
+    borderColor: COLORS.primary,
+  },
+  globalTabText: {
+    marginLeft: 6,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+    fontSize: 12
+  },
+  globalTabTextActive: {
+    color: COLORS.primary,
+  },
   filtersContainer: {
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    paddingBottom: SIZES.small,
+    paddingVertical: SIZES.small,
     backgroundColor: COLORS.background,
     zIndex: 10,
   },
@@ -323,7 +507,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
   },
   filterPillActive: {
-    backgroundColor: "rgba(255, 107, 0, 0.15)", // Оранжевый OLED акцент
+    backgroundColor: "rgba(255, 107, 0, 0.15)",
     borderColor: COLORS.primary,
   },
   filterText: {
@@ -332,11 +516,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   filterTextActive: {
-    color: COLORS.primary, // Оранжевый текст
+    color: COLORS.primary,
   },
   listContent: {
     padding: SIZES.large,
-    paddingBottom: 100, // Отступ под нижний таб-бар
+    paddingBottom: 100,
   },
   orderCard: {
     padding: SIZES.medium,
@@ -357,6 +541,28 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.textMain,
   },
+  indicatorsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SIZES.small,
+    gap: SIZES.small,
+  },
+  indicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.background,
+  },
+  indicatorText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+  },
   footerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -374,10 +580,10 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // Оранжевый фон кнопки
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: SIZES.radiusSm, // Строгие углы
+    borderRadius: SIZES.radiusSm,
   },
   actionText: {
     color: COLORS.primary,
@@ -409,4 +615,42 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSmall,
     textAlign: "center",
   },
+
+  // Стили для модалки статуса
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  modalContentSmall: {
+    width: "80%",
+    backgroundColor: COLORS.surface,
+    padding: SIZES.large,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  statusOption: {
+    paddingVertical: SIZES.medium,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  statusText: {
+    color: COLORS.textMain,
+    fontSize: SIZES.fontBase,
+    fontWeight: "600",
+    textAlign: "center"
+  },
+  cancelBtn: {
+    marginTop: SIZES.medium,
+    padding: SIZES.medium,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: SIZES.radiusSm,
+  },
+  cancelBtnText: {
+    color: COLORS.textMuted,
+    textAlign: "center",
+    fontWeight: "600"
+  }
 });

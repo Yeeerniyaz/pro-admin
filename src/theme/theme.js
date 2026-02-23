@@ -1,9 +1,10 @@
 /**
  * @file src/theme/theme.js
- * @description Design System & Theme Configuration (PROADMIN Mobile v11.0.5 Enterprise).
- * ДОБАВЛЕНО: SAFE_SPACING для предотвращения наложений на StatusBar и BottomBar.
+ * @description Design System & Theme Configuration (PROADMIN Mobile v12.13.1 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v12.13.1): Возвращен точечный расчет paddingTop для Android.
+ * Теперь приложение не "залезает" на статус-бар, но и не создает огромную черную дыру.
  * ДИЗАЙН: Black & Orange Minimalism (OLED Black, Electric Orange, строгие рамки).
- * НИКАКИХ УДАЛЕНИЙ: Все ключи и стили сохранены на 100%.
+ * НИКАКИХ УДАЛЕНИЙ: Все ключи и стили сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module Theme
  */
@@ -38,13 +39,11 @@ export const SIZES = Object.freeze({
   fontMedium: 16,
   fontTitle: 20,
   fontHeader: 24,
-  // Строгие углы для минимализма (как в web)
   radiusSm: 4,
   radiusMd: 8,
   radiusLg: 12,
 });
 
-// 🔥 Константы безопасных зон (сохранены без изменений)
 export const SAFE_SPACING = Object.freeze({
   top: Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 44,
   bottom: Platform.OS === 'ios' ? 34 : 10,
@@ -87,7 +86,8 @@ export const GLOBAL_STYLES = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
-    // 🔥 Автоматический отступ от статус-бара
+    // 🔥 ФИКС: Для Android добавляем высоту статус-бара, чтобы контент не залезал под него.
+    // Для iOS оставляем 0, так как там Safe Area обрабатывается иначе (через View/Padding).
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   container: {
@@ -97,7 +97,7 @@ export const GLOBAL_STYLES = StyleSheet.create({
   },
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: SIZES.radiusMd, // Сделали чуть строже
+    borderRadius: SIZES.radiusMd, 
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: SIZES.medium,
@@ -113,7 +113,7 @@ export const GLOBAL_STYLES = StyleSheet.create({
   },
   h1: {
     fontSize: SIZES.fontHeader,
-    fontWeight: '600', // Облегчили вес для премиального вида
+    fontWeight: '600', 
     color: COLORS.textMain,
     marginBottom: SIZES.base,
     letterSpacing: -0.5,

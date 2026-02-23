@@ -1,12 +1,15 @@
 /**
  * @file src/screens/DashboardScreen.js
- * @description Главный экран аналитики (PROADMIN Mobile v11.0.10 Enterprise).
+ * @description Главный экран аналитики (PROADMIN Mobile v12.7.0 Enterprise).
  * ДОБАВЛЕНО: Интеграция с DeepAnalytics (Средний чек, Долги, Расходы).
  * ДОБАВЛЕНО: Фильтрация по датам (За месяц / За всё время).
  * ДОБАВЛЕНО: Строгий RBAC (Бригадиры видят только свои метрики).
+ * 🔥 ИСПРАВЛЕНО (v12.7.0): Применен единый OLED-дизайн (Black & Orange) для шапки.
+ * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (используется строгий View).
  * НИКАКИХ УДАЛЕНИЙ: RefreshControl, formatKZT и базовая воронка сохранены на 100%.
  *
  * @module DashboardScreen
+ * @version 12.7.0 (Unified OLED Design Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -26,7 +29,8 @@ import {
   Activity,
   Users,
   AlertTriangle,
-  PieChart
+  PieChart,
+  BarChart3
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -45,7 +49,7 @@ export default function DashboardScreen() {
   const { user, logout } = useContext(AuthContext); // 🔥 Используем RBAC и logout
 
   const [stats, setStats] = useState(null);
-  const [deepStats, setDeepStats] = useState(null); // 🔥 НОВОЕ: Глубокая аналитика
+  const [deepStats, setDeepStats] = useState(null); // 🔥 Глубокая аналитика
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -122,33 +126,42 @@ export default function DashboardScreen() {
   const expenses = deepStats?.expenseBreakdown || [];
 
   return (
+    // 🔥 Используем обычный View, чтобы избежать двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* 🎩 ШАПКА ЭКРАНА (HEADER) */}
+      
+      {/* 🎩 ШАПКА ЭКРАНА (Единый OLED-стиль) */}
       <View style={styles.header}>
-        <View>
-          <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Аналитика" : "Моя Статистика"}</Text>
-          <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "ProElectric ERP v11.0" : "Ваши показатели"}</Text>
+        <View style={GLOBAL_STYLES.rowCenter}>
+          <View style={styles.iconWrapper}>
+            <BarChart3 color={COLORS.primary} size={24} />
+          </View>
+          <View>
+            <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Аналитика" : "Моя Статистика"}</Text>
+            <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "ProElectric ERP" : "Ваши показатели"}</Text>
+          </View>
         </View>
         <TouchableOpacity
           onPress={logout}
           style={styles.logoutButton}
           activeOpacity={0.7}
         >
-          <LogOut color={COLORS.danger} size={24} />
+          <LogOut color={COLORS.danger} size={20} />
         </TouchableOpacity>
       </View>
 
-      {/* 🗓 ФИЛЬТРЫ ПЕРИОДА (НОВОЕ) */}
+      {/* 🗓 ФИЛЬТРЫ ПЕРИОДА */}
       <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[styles.filterBtn, period === 'all' && styles.filterBtnActive]}
           onPress={() => setPeriod('all')}
+          activeOpacity={0.8}
         >
           <Text style={[styles.filterText, period === 'all' && styles.filterTextActive]}>За всё время</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.filterBtn, period === 'month' && styles.filterBtnActive]}
           onPress={() => setPeriod('month')}
+          activeOpacity={0.8}
         >
           <Text style={[styles.filterText, period === 'month' && styles.filterTextActive]}>Этот месяц</Text>
         </TouchableOpacity>
@@ -178,19 +191,19 @@ export default function DashboardScreen() {
         <View style={styles.kpiGrid}>
           {/* ЧИСТАЯ ПРИБЫЛЬ */}
           <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.success }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
-              <TrendingUp color={COLORS.success} size={24} />
+            <View style={[styles.kpiIconWrapper, { backgroundColor: "rgba(16, 185, 129, 0.15)" }]}>
+              <TrendingUp color={COLORS.success} size={20} />
             </View>
             <Text style={styles.kpiLabel}>{isAdmin ? "Чистая прибыль" : "Мой заработок"}</Text>
-            <Text style={[styles.kpiValue, { color: COLORS.success }]}>
+            <Text style={[styles.kpiValue, { color: COLORS.success }]} numberOfLines={1} adjustsFontSizeToFit>
               {formatKZT(overview.totalNetProfit)}
             </Text>
           </PeCard>
 
           {/* ОБОРОТ */}
           <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.primary }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: "rgba(255, 107, 0, 0.15)" }]}>
-              <CreditCard color={COLORS.primary} size={24} />
+            <View style={[styles.kpiIconWrapper, { backgroundColor: "rgba(255, 107, 0, 0.15)" }]}>
+              <CreditCard color={COLORS.primary} size={20} />
             </View>
             <Text style={styles.kpiLabel}>Оборот (Revenue)</Text>
             <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit>
@@ -201,11 +214,11 @@ export default function DashboardScreen() {
           {/* ДОЛГИ БРИГАД (ТОЛЬКО ДЛЯ АДМИНОВ) */}
           {isAdmin && (
             <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.danger }]}>
-              <View style={[styles.iconWrapper, { backgroundColor: "rgba(239, 68, 68, 0.15)" }]}>
-                <AlertTriangle color={COLORS.danger} size={24} />
+              <View style={[styles.kpiIconWrapper, { backgroundColor: "rgba(239, 68, 68, 0.15)" }]}>
+                <AlertTriangle color={COLORS.danger} size={20} />
               </View>
               <Text style={styles.kpiLabel}>Долги Бригад</Text>
-              <Text style={[styles.kpiValue, { color: COLORS.danger }]}>
+              <Text style={[styles.kpiValue, { color: COLORS.danger }]} numberOfLines={1} adjustsFontSizeToFit>
                 {formatKZT(economics.totalBrigadeDebts || 0)}
               </Text>
             </PeCard>
@@ -213,19 +226,19 @@ export default function DashboardScreen() {
 
           {/* СРЕДНИЙ ЧЕК */}
           <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.warning }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
-              <Activity color={COLORS.warning} size={24} />
+            <View style={[styles.kpiIconWrapper, { backgroundColor: "rgba(245, 158, 11, 0.15)" }]}>
+              <Activity color={COLORS.warning} size={20} />
             </View>
             <Text style={styles.kpiLabel}>Средний чек (AOV)</Text>
-            <Text style={styles.kpiValue}>
+            <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit>
               {formatKZT(economics.averageCheck || 0)}
             </Text>
           </PeCard>
 
           {/* АКТИВНЫЕ ЗАКАЗЫ */}
           <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.border }]}>
-            <View style={[styles.iconWrapper, { backgroundColor: COLORS.surfaceElevated }]}>
-              <PieChart color={COLORS.textMuted} size={24} />
+            <View style={[styles.kpiIconWrapper, { backgroundColor: COLORS.surfaceElevated }]}>
+              <PieChart color={COLORS.textMuted} size={20} />
             </View>
             <Text style={styles.kpiLabel}>В работе</Text>
             <Text style={styles.kpiValue}>{overview.pendingOrders || 0} шт.</Text>
@@ -234,8 +247,8 @@ export default function DashboardScreen() {
           {/* БАЗА КЛИЕНТОВ (ТОЛЬКО ДЛЯ АДМИНОВ) */}
           {isAdmin && (
             <PeCard elevated={false} style={[styles.kpiCard, { borderColor: COLORS.border }]}>
-              <View style={[styles.iconWrapper, { backgroundColor: COLORS.surfaceElevated }]}>
-                <Users color={COLORS.textMuted} size={24} />
+              <View style={[styles.kpiIconWrapper, { backgroundColor: COLORS.surfaceElevated }]}>
+                <Users color={COLORS.textMuted} size={20} />
               </View>
               <Text style={styles.kpiLabel}>Всего клиентов</Text>
               <Text style={styles.kpiValue}>{overview.totalUsers || 0} чел.</Text>
@@ -296,7 +309,7 @@ export default function DashboardScreen() {
         )}
 
         {/* Отступ снизу для красоты и Bottom Tabs */}
-        <View style={{ height: 40 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
     </View>
   );
@@ -312,33 +325,45 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
-    paddingBottom: SIZES.small,
+    paddingBottom: SIZES.medium,
     backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  iconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: "rgba(255, 107, 0, 0.1)", // Фирменный оранжевый акцент
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: SIZES.medium,
   },
   logoutButton: {
-    padding: SIZES.small,
+    padding: 10,
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderRadius: SIZES.radiusSm,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
   },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: SIZES.large,
-    paddingBottom: SIZES.medium,
+    paddingVertical: SIZES.medium,
     gap: SIZES.small,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.background,
   },
   filterBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: SIZES.radiusSm,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.surfaceElevated,
   },
   filterBtnActive: {
     borderColor: COLORS.primary,
-    backgroundColor: "rgba(255, 107, 0, 0.1)",
+    backgroundColor: "rgba(255, 107, 0, 0.15)",
   },
   filterText: {
     color: COLORS.textMuted,
@@ -364,19 +389,20 @@ const styles = StyleSheet.create({
     padding: SIZES.medium,
     marginBottom: SIZES.medium,
   },
-  iconWrapper: {
-    width: 36,
-    height: 36,
+  kpiIconWrapper: {
+    width: 32,
+    height: 32,
     borderRadius: SIZES.radiusSm,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: SIZES.medium,
+    marginBottom: SIZES.small,
   },
   kpiLabel: {
-    fontSize: SIZES.fontSmall,
+    fontSize: 11,
     color: COLORS.textMuted,
     textTransform: "uppercase",
-    marginBottom: SIZES.base,
+    marginBottom: 4,
+    letterSpacing: 0.5,
   },
   kpiValue: {
     fontSize: SIZES.fontMedium,

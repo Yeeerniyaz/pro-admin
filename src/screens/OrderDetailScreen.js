@@ -1,11 +1,13 @@
 /**
  * @file src/screens/OrderDetailScreen.js
- * @description Экран управления объектом (PROADMIN Mobile v11.0.14 Enterprise).
- * ИСПРАВЛЕНО: Жесткий фикс клавиатуры в модальных окнах для Android (behavior="padding" + offset).
- * ДОБАВЛЕНО: Функционал назначения бригады (Assign Order) для Шефа/Админа.
+ * @description Экран управления объектом (PROADMIN Mobile v12.5.2 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v12.5.2): Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * 🔥 ИСПРАВЛЕНО (v12.5.1): Глобальный фикс клавиатуры при редактировании спецификации (BOM).
+ * ДОБАВЛЕНО: Максимальная детализация объекта (режим калькулятора, тариф, статус Умного дома).
  * НИКАКИХ УДАЛЕНИЙ: Весь функционал (BOM, Финансы, Метаданные) сохранен на 100%.
  *
  * @module OrderDetailScreen
+ * @version 12.5.2 (Top Margin & Keyboard Fix Edition)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -22,7 +24,6 @@ import {
   ActivityIndicator,
   Keyboard
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowLeft,
   User,
@@ -37,7 +38,12 @@ import {
   AlignLeft,
   DollarSign,
   DownloadCloud,
-  HardHat
+  HardHat,
+  Home,
+  Settings,
+  Layers,
+  Tag,
+  ShieldAlert
 } from "lucide-react-native";
 
 // Импорт архитектуры
@@ -66,14 +72,26 @@ export default function OrderDetailScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
 
   const [brigades, setBrigades] = useState([]);
-  const isDone = order.status === 'done';
+  const isDone = order.status === 'done' || order.status === 'archived';
 
   const [address, setAddress] = useState(order.details?.address || "");
   const [adminComment, setAdminComment] = useState(order.details?.admin_comment || "");
   const [bom, setBom] = useState(Array.isArray(order.details?.bom) ? order.details.bom : []);
 
+  // Извлекаем технические данные из гибридного калькулятора (v12)
+  const params = order.details?.params || {};
   const financials = order.details?.financials || { final_price: order.total_price, total_expenses: 0, net_profit: order.total_price, expenses: [] };
   const calcBase = order.details?.total?.work || order.total_price;
+
+  // Парсинг тех. данных
+  const calcMode = params.calcMode === 'sq_meter' ? 'По квадратуре (СНиП)' : 'Точный (price_list)';
+  const area = params.area || order.area || 0;
+  const rooms = params.rooms || 0;
+  const isSmartHome = params.isSmartHome ? "Да" : "Нет";
+  const tariffName = params.tariffName || "Стандарт";
+  const wallType = params.wallType || "Не указано";
+  const appliedDiscount = params.appliedDiscount || 0;
+  const isMinThresholdApplied = order.details?.total?.isMinThresholdApplied || false;
 
   // Модалки
   const [expenseModalVisible, setExpenseModalVisible] = useState(false);
@@ -216,10 +234,13 @@ export default function OrderDetailScreen({ route, navigation }) {
   // =============================================================================
 
   return (
-    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+    // 🔥 ИСПРАВЛЕНИЕ: Возвращаем View вместо SafeAreaView, чтобы убрать черную дыру сверху
+    <View style={GLOBAL_STYLES.safeArea}>
+      {/* ЖЕСТКИЙ ФИКС КЛАВИАТУРЫ ДЛЯ BOM */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "padding"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} disabled={loading}>
@@ -234,7 +255,9 @@ export default function OrderDetailScreen({ route, navigation }) {
 
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollContent}
+          // Огромный отступ снизу, чтобы при открытой клавиатуре 
+          // можно было прокрутить до кнопки "Сохранить BOM"
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 300 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -242,12 +265,12 @@ export default function OrderDetailScreen({ route, navigation }) {
           {isDone && (
             <View style={styles.alertDanger}>
               <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: SIZES.fontSmall }}>
-                🔒 Заказ ЗАВЕРШЕН. Изменения заблокированы.
+                🔒 Заказ ЗАВЕРШЕН/АРХИВ. Изменения заблокированы.
               </Text>
             </View>
           )}
 
-          {/* ИНФОРМАЦИЯ */}
+          {/* ИНФОРМАЦИЯ О КЛИЕНТЕ И ЛОКАЦИИ */}
           <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
             <Text style={styles.sectionTitle}>Информация</Text>
             <View style={styles.infoRow}>
@@ -304,6 +327,58 @@ export default function OrderDetailScreen({ route, navigation }) {
               />
             )}
           </PeCard>
+
+          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ (ГИБРИДНЫЙ КАЛЬКУЛЯТОР) */}
+          {area > 0 && (
+            <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
+              <Text style={styles.sectionTitle}>Технические данные</Text>
+              
+              <View style={styles.techRow}>
+                <Settings color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Text style={GLOBAL_STYLES.textMuted}>Метод расчета:</Text>
+                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontStyle: 'italic'}]}>{calcMode}</Text>
+              </View>
+
+              <View style={styles.techRow}>
+                <Home color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Text style={GLOBAL_STYLES.textMuted}>Площадь / Комнаты:</Text>
+                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{area} м² / {rooms}</Text>
+              </View>
+
+              <View style={styles.techRow}>
+                <Layers color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Text style={GLOBAL_STYLES.textMuted}>Стены:</Text>
+                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{wallType}</Text>
+              </View>
+
+              <View style={styles.techRow}>
+                <MapPin color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Text style={GLOBAL_STYLES.textMuted}>Тариф:</Text>
+                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontWeight: '600'}]}>{tariffName}</Text>
+              </View>
+
+              <View style={styles.techRow}>
+                <Settings color={COLORS.primary} size={16} style={{marginRight: 8}}/>
+                <Text style={GLOBAL_STYLES.textMuted}>Умный дом:</Text>
+                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', color: isSmartHome === 'Да' ? COLORS.primary : COLORS.textMain}]}>{isSmartHome}</Text>
+              </View>
+
+              {appliedDiscount > 0 && (
+                <View style={[styles.techRow, { marginTop: SIZES.small, paddingTop: SIZES.small, borderTopWidth: 1, borderTopColor: COLORS.border }]}>
+                  <Tag color={COLORS.warning} size={16} style={{marginRight: 8}}/>
+                  <Text style={{color: COLORS.warning, fontWeight: '600'}}>Применена скидка:</Text>
+                  <Text style={{flex: 1, textAlign: 'right', color: COLORS.warning, fontWeight: '700'}}>-{formatKZT(appliedDiscount)}</Text>
+                </View>
+              )}
+
+              {isMinThresholdApplied && (
+                <View style={[styles.techRow, { marginTop: SIZES.small }]}>
+                  <ShieldAlert color={COLORS.danger} size={16} style={{marginRight: 8}}/>
+                  <Text style={{color: COLORS.danger, flex: 1, fontSize: 12}}>Сработал блокиратор минимальной рентабельности</Text>
+                </View>
+              )}
+            </PeCard>
+          )}
 
           {/* СИСТЕМНЫЕ ДЕЙСТВИЯ */}
           {!isDone && (
@@ -442,7 +517,6 @@ export default function OrderDetailScreen({ route, navigation }) {
             )}
           </PeCard>
 
-          <View style={{ height: 100 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -452,7 +526,6 @@ export default function OrderDetailScreen({ route, navigation }) {
 
       {/* 1. Модалка: ИЗМЕНЕНИЕ ИТОГОВОЙ ЦЕНЫ */}
       <Modal visible={priceModalVisible} transparent animationType="slide">
-        {/* 🔥 Принудительный padding для всех платформ. Это толкает модалку вверх. */}
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
@@ -475,7 +548,6 @@ export default function OrderDetailScreen({ route, navigation }) {
 
       {/* 2. Модалка: ДОБАВЛЕНИЕ ЧЕКА (РАСХОДА) */}
       <Modal visible={expenseModalVisible} transparent animationType="slide">
-        {/* 🔥 Принудительный padding для всех платформ. */}
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
@@ -507,7 +579,6 @@ export default function OrderDetailScreen({ route, navigation }) {
 
       {/* 3. Модалка: НАЗНАЧЕНИЕ БРИГАДЫ (ТОЛЬКО ДЛЯ АДМИНА) */}
       <Modal visible={assignModalVisible} transparent animationType="slide">
-        {/* 🔥 Принудительный padding для всех платформ. */}
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
@@ -551,7 +622,7 @@ export default function OrderDetailScreen({ route, navigation }) {
         </KeyboardAvoidingView>
       </Modal>
 
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -586,6 +657,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: SIZES.base,
+  },
+  techRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   finRow: {
     flexDirection: "row",

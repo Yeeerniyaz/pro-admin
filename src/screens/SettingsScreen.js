@@ -1,11 +1,11 @@
 /**
  * @file src/screens/SettingsScreen.js
- * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v11.0.16 Enterprise).
- * Позволяет администратору динамически менять цены на услуги с массовым сохранением.
- * ИСПРАВЛЕНО: Жесткий фикс клавиатуры (behavior="padding") для Android — теперь инпуты цен не перекрываются.
- * ДОБАВЛЕНО: SafeAreaView для защиты от наложения на системный статус-бар.
- * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки без теней, оранжевые акценты).
- * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (Deep State Update и Bulk API Save) сохранена на 100%.
+ * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v12.2.1 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v12.2.1): Убрано дублирование отступа SafeAreaView (черная полоса сверху).
+ * 🔥 ДОБАВЛЕНО: Полная поддержка Гибридного Калькулятора (Управление тарифами за кв.м. и коэффициентами).
+ * 🔥 ДОБАВЛЕНО: Управление Глобальными Скидками и Режимом калькулятора прямо с телефона.
+ * ИСПРАВЛЕНО: Жесткий фикс клавиатуры (behavior="padding") для Android.
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module SettingsScreen
  */
@@ -21,11 +21,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  TouchableOpacity,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context"; // 🔥 Защита от челок
-import { Save, Sliders, AlertCircle } from "lucide-react-native";
+import { Save, Sliders, AlertCircle, TrendingDown, Layers, Settings } from "lucide-react-native";
 
-// Импорт нашей архитектуры
 import { API } from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
@@ -33,24 +32,58 @@ import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 export default function SettingsScreen() {
   // Состояния
   const [pricelist, setPricelist] = useState([]);
+  const [tariffs, setTariffs] = useState([]);
+  const [coefficients, setCoefficients] = useState([]);
+  const [globalSettings, setGlobalSettings] = useState({
+    global_discount_active: 'false',
+    global_discount_percent: '10',
+    calculator_mode: 'sq_meter'
+  });
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ПРАЙС-ЛИСТА
+  // 📡 ЗАГРУЗКА ДАННЫХ ИЗ БЭКЕНДА
   // =============================================================================
   const fetchSettings = async (isRefresh = false) => {
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      const data = await API.getPricelist();
-      // data ожидается в формате: [{ category: 'Штробление', items: [{ key, name, unit, currentPrice }] }]
-      setPricelist(data || []);
+      // Запрашиваем параллельно и прайс, и настройки
+      const [priceData, settingsData] = await Promise.all([
+        API.getPricelist(),
+        API.getSettings()
+      ]);
+
+      setPricelist(priceData || []);
+
+      const rawSettings = settingsData.settings || {};
+      const calcData = settingsData.calcData || { tariffs: [], coefficients: [] };
+
+      setGlobalSettings({
+        global_discount_active: rawSettings.global_discount_active || 'false',
+        global_discount_percent: rawSettings.global_discount_percent || '10',
+        calculator_mode: rawSettings.calculator_mode || 'sq_meter'
+      });
+
+      // Фильтруем дубликаты (Анти-Дубликатор)
+      const uniqueTariffs = Object.values((calcData.tariffs || []).reduce((acc, t) => {
+        acc[t.property_type] = t; return acc;
+      }, {}));
+      
+      const uniqueCoeffs = Object.values((calcData.coefficients || []).reduce((acc, c) => {
+        acc[c.code] = c; return acc;
+      }, {}));
+
+      setTariffs(uniqueTariffs);
+      setCoefficients(uniqueCoeffs);
+
     } catch (err) {
-      setError(err.message || "Ошибка загрузки прайс-листа");
+      setError(err.message || "Ошибка загрузки настроек");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -67,71 +100,123 @@ export default function SettingsScreen() {
   }, []);
 
   // =============================================================================
-  // ✍️ ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ ЦЕНЫ В STATE
+  // ✍️ ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ STATE
   // =============================================================================
   const handlePriceChange = (categoryIndex, itemIndex, newPriceStr) => {
-    // Копируем стейт для иммутабельности (Deep State Update)
     const updatedPricelist = [...pricelist];
     updatedPricelist[categoryIndex].items[itemIndex].currentPrice = newPriceStr;
     setPricelist(updatedPricelist);
   };
 
+  const handleTariffChange = (index, val) => {
+    const updated = [...tariffs];
+    updated[index].base_price_sqm = val;
+    setTariffs(updated);
+  };
+
+  const handleCoeffChange = (index, val) => {
+    const updated = [...coefficients];
+    updated[index].multiplier = val;
+    setCoefficients(updated);
+  };
+
+  const handleGlobalChange = (key, val) => {
+    setGlobalSettings(prev => ({ ...prev, [key]: val }));
+  };
+
   // =============================================================================
-  // 💾 СОХРАНЕНИЕ НА СЕРВЕР (BULK UPDATE)
+  // 💾 СОХРАНЕНИЕ НА СЕРВЕР (ORCHESTRATOR)
   // =============================================================================
   const handleSaveSettings = async () => {
     setSaving(true);
 
-    // Формируем плоский массив [{ key, value }] для нашего API
-    const payload = [];
-    pricelist.forEach((section) => {
-      section.items.forEach((item) => {
-        if (item.key) {
-          payload.push({
-            key: item.key,
-            value: parseFloat(item.currentPrice) || 0,
-          });
-        }
-      });
-    });
-
-    if (payload.length === 0) {
-      Alert.alert("Внимание", "Нет данных для сохранения");
-      setSaving(false);
-      return;
-    }
-
     try {
+      // 1. Сохраняем общие настройки (скидки, режим) + точный прайс
+      const payload = [
+        { key: 'global_discount_active', value: globalSettings.global_discount_active },
+        { key: 'global_discount_percent', value: parseFloat(globalSettings.global_discount_percent) || 0 },
+        { key: 'calculator_mode', value: globalSettings.calculator_mode }
+      ];
+
+      pricelist.forEach((section) => {
+        section.items.forEach((item) => {
+          // Игнорируем ключи, которые уже обработали
+          if (item.key && item.key !== 'calculator_mode' && item.key !== 'global_discount_active' && item.key !== 'global_discount_percent') {
+            payload.push({
+              key: item.key,
+              value: parseFloat(item.currentPrice) || 0,
+            });
+          }
+        });
+      });
+
       await API.updateBulkSettings(payload);
+
+      // 2. Сохраняем Тарифы
+      for (const t of tariffs) {
+        await API.updateTariffs(t.property_type, parseFloat(t.base_price_sqm));
+      }
+
+      // 3. Сохраняем Коэффициенты
+      for (const c of coefficients) {
+        await API.updateCoefficients(c.code, parseFloat(c.multiplier));
+      }
+
       Alert.alert(
         "Успех",
-        "Системный прайс-лист успешно обновлен. Новые сметы будут использовать эти цены.",
+        "Настройки, тарифы и прайс-лист успешно обновлены на сервере.",
       );
+      fetchSettings(true); // Перезагружаем для надежности
     } catch (err) {
-      Alert.alert("Ошибка", err.message || "Не удалось сохранить настройки");
+      Alert.alert("Ошибка сохранения", err.message || "Не удалось сохранить настройки");
     } finally {
       setSaving(false);
     }
   };
 
   // =============================================================================
+  // 🖥 UI COMPONENTS (ПОДКОМПОНЕНТЫ)
+  // =============================================================================
+  
+  // Кастомный переключатель (Segmented Control)
+  const SegmentedControl = ({ options, selectedValue, onSelect }) => (
+    <View style={styles.segmentedContainer}>
+      {options.map((opt) => {
+        const isActive = selectedValue === opt.value;
+        return (
+          <TouchableOpacity
+            key={opt.value}
+            style={[styles.segmentButton, isActive && styles.segmentActive]}
+            onPress={() => onSelect(opt.value)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  // =============================================================================
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
-      {/* 🔥 ЖЕСТКИЙ ФИКС КЛАВИАТУРЫ: behavior="padding" для всех платформ */}
+    // 🔥 ИСПРАВЛЕНИЕ: Используем стандартный View вместо SafeAreaView для избежания двойных отступов
+    <View style={GLOBAL_STYLES.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior="padding"
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        {/* 🎩 ШАПКА ЭКРАНА (Floating Header) */}
+        {/* 🎩 ШАПКА ЭКРАНА */}
         <View style={styles.header}>
           <View style={GLOBAL_STYLES.rowCenter}>
             <View style={styles.iconWrapper}>
               <Sliders color={COLORS.primary} size={24} />
             </View>
             <View>
-              <Text style={GLOBAL_STYLES.h1}>Прайс-лист</Text>
+              <Text style={GLOBAL_STYLES.h1}>Конфигурация</Text>
               <Text style={GLOBAL_STYLES.textMuted}>
                 Глобальные расценки системы
               </Text>
@@ -161,14 +246,13 @@ export default function SettingsScreen() {
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}>
-              Синхронизация тарифов...
+              Загрузка конфигурации из БД...
             </Text>
           </View>
         ) : (
           <View style={{ flex: 1 }}>
             <ScrollView
               showsVerticalScrollIndicator={false}
-              // 🔥 Увеличенный отступ снизу, чтобы скроллить контент над клавиатурой
               contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 }]}
               keyboardShouldPersistTaps="handled"
               refreshControl={
@@ -179,41 +263,139 @@ export default function SettingsScreen() {
                 />
               }
             >
-              {pricelist.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Text style={GLOBAL_STYLES.textMuted}>
-                    Прайс-лист пуст или не настроен на сервере.
-                  </Text>
+              
+              {/* 🎁 БЛОК 1: ГЛОБАЛЬНЫЕ СКИДКИ */}
+              <View style={styles.categoryBlock}>
+                <View style={styles.categoryHeader}>
+                  <TrendingDown color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <Text style={styles.categoryTitle}>Скидки и Режим</Text>
                 </View>
-              ) : (
-                pricelist.map((section, catIdx) => (
+                <PeCard elevated={false} style={styles.itemsCard}>
+                  <View style={styles.itemRowCol}>
+                    <Text style={GLOBAL_STYLES.textBody}>Режим калькулятора</Text>
+                    <SegmentedControl 
+                      options={[
+                        { label: 'Квадратура', value: 'sq_meter' },
+                        { label: 'Точный', value: 'price_list' }
+                      ]}
+                      selectedValue={globalSettings.calculator_mode}
+                      onSelect={(val) => handleGlobalChange('calculator_mode', val)}
+                    />
+                  </View>
+                  <View style={styles.itemRowCol}>
+                    <Text style={GLOBAL_STYLES.textBody}>Статус скидки</Text>
+                    <SegmentedControl 
+                      options={[
+                        { label: 'ВКЛЮЧЕНА', value: 'true' },
+                        { label: 'ВЫКЛЮЧЕНА', value: 'false' }
+                      ]}
+                      selectedValue={globalSettings.global_discount_active}
+                      onSelect={(val) => handleGlobalChange('global_discount_active', val)}
+                    />
+                  </View>
+                  {globalSettings.global_discount_active === 'true' && (
+                    <View style={styles.itemRow}>
+                      <View style={styles.itemInfo}>
+                        <Text style={GLOBAL_STYLES.textBody}>Процент скидки</Text>
+                        <Text style={GLOBAL_STYLES.textSmall}>в %</Text>
+                      </View>
+                      <View style={styles.inputWrapper}>
+                        <PeInput
+                          value={String(globalSettings.global_discount_percent)}
+                          onChangeText={(val) => handleGlobalChange('global_discount_percent', val)}
+                          keyboardType="numeric"
+                          style={{ marginBottom: 0 }}
+                          placeholder="0"
+                        />
+                      </View>
+                    </View>
+                  )}
+                </PeCard>
+              </View>
+
+              {/* 🏢 БЛОК 2: ТАРИФЫ ЗА МЕТР */}
+              <View style={styles.categoryBlock}>
+                <View style={styles.categoryHeader}>
+                  <Layers color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <Text style={styles.categoryTitle}>Базовые тарифы (за 1 м²)</Text>
+                </View>
+                <PeCard elevated={false} style={styles.itemsCard}>
+                  {tariffs.length === 0 ? (
+                    <Text style={GLOBAL_STYLES.textMuted}>Тарифы не найдены в БД</Text>
+                  ) : (
+                    tariffs.map((t, idx) => (
+                      <View key={`tariff-${t.id || idx}`} style={styles.itemRow}>
+                        <View style={styles.itemInfo}>
+                          <Text style={GLOBAL_STYLES.textBody}>{t.name}</Text>
+                          <Text style={GLOBAL_STYLES.textSmall}>₸ / м²</Text>
+                        </View>
+                        <View style={styles.inputWrapper}>
+                          <PeInput
+                            value={String(t.base_price_sqm)}
+                            onChangeText={(val) => handleTariffChange(idx, val)}
+                            keyboardType="numeric"
+                            style={{ marginBottom: 0 }}
+                            placeholder="0"
+                          />
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </PeCard>
+              </View>
+
+              {/* 📈 БЛОК 3: КОЭФФИЦИЕНТЫ */}
+              <View style={styles.categoryBlock}>
+                <View style={styles.categoryHeader}>
+                  <Settings color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <Text style={styles.categoryTitle}>Коэффициенты</Text>
+                </View>
+                <PeCard elevated={false} style={styles.itemsCard}>
+                  {coefficients.length === 0 ? (
+                    <Text style={GLOBAL_STYLES.textMuted}>Коэффициенты не найдены</Text>
+                  ) : (
+                    coefficients.map((c, idx) => (
+                      <View key={`coeff-${c.id || idx}`} style={styles.itemRow}>
+                        <View style={styles.itemInfo}>
+                          <Text style={GLOBAL_STYLES.textBody}>{c.name}</Text>
+                          <Text style={GLOBAL_STYLES.textSmall}>{c.code}</Text>
+                        </View>
+                        <View style={styles.inputWrapper}>
+                          <PeInput
+                            value={String(c.multiplier)}
+                            onChangeText={(val) => handleCoeffChange(idx, val)}
+                            keyboardType="numeric"
+                            style={{ marginBottom: 0 }}
+                            placeholder="0.00"
+                          />
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </PeCard>
+              </View>
+
+              {/* 📋 БЛОК 4: ДЕТАЛЬНЫЙ ПРАЙС-ЛИСТ */}
+              {pricelist.map((section, catIdx) => {
+                // Исключаем системные настройки из списка (так как мы вынесли их наверх)
+                if (section.category.includes("Настройки алгоритма")) return null;
+
+                return (
                   <View key={`cat-${catIdx}`} style={styles.categoryBlock}>
-                    {/* Заголовок категории */}
                     <View style={styles.categoryHeader}>
                       <Text style={styles.categoryTitle}>{section.category}</Text>
                     </View>
-
-                    {/* Карточка с инпутами для этой категории (OLED design) */}
                     <PeCard elevated={false} style={styles.itemsCard}>
                       {section.items.map((item, itemIdx) => (
                         <View key={`item-${item.key}`} style={styles.itemRow}>
-                          {/* Название и единица измерения */}
                           <View style={styles.itemInfo}>
-                            <Text style={GLOBAL_STYLES.textBody}>
-                              {item.name}
-                            </Text>
-                            <Text style={GLOBAL_STYLES.textSmall}>
-                              за {item.unit}
-                            </Text>
+                            <Text style={GLOBAL_STYLES.textBody}>{item.name}</Text>
+                            <Text style={GLOBAL_STYLES.textSmall}>за {item.unit}</Text>
                           </View>
-
-                          {/* Поле ввода цены */}
                           <View style={styles.inputWrapper}>
                             <PeInput
                               value={String(item.currentPrice)}
-                              onChangeText={(val) =>
-                                handlePriceChange(catIdx, itemIdx, val)
-                              }
+                              onChangeText={(val) => handlePriceChange(catIdx, itemIdx, val)}
                               keyboardType="numeric"
                               style={{ marginBottom: 0 }}
                               placeholder="0"
@@ -223,27 +405,26 @@ export default function SettingsScreen() {
                       ))}
                     </PeCard>
                   </View>
-                ))
-              )}
+                );
+              })}
+
             </ScrollView>
 
-            {/* 💾 ПЛАВАЮЩАЯ КНОПКА СОХРАНЕНИЯ (FLOATING ACTION BUTTON) */}
-            {pricelist.length > 0 && (
-              <View style={styles.fabContainer}>
-                <PeButton
-                  title="Сохранить прайс-лист"
-                  icon={<Save color="#000" size={20} />}
-                  onPress={handleSaveSettings}
-                  loading={saving}
-                  variant="success"
-                  style={styles.fabGlow}
-                />
-              </View>
-            )}
+            {/* 💾 ПЛАВАЮЩАЯ КНОПКА СОХРАНЕНИЯ */}
+            <View style={styles.fabContainer}>
+              <PeButton
+                title="Сохранить настройки"
+                icon={<Save color="#000" size={20} />}
+                onPress={handleSaveSettings}
+                loading={saving}
+                variant="success"
+                style={styles.fabGlow}
+              />
+            </View>
           </View>
         )}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -278,6 +459,8 @@ const styles = StyleSheet.create({
     marginBottom: SIZES.large,
   },
   categoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderLeftWidth: 3,
     borderLeftColor: COLORS.primary,
     paddingLeft: SIZES.small,
@@ -300,12 +483,47 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.05)",
   },
+  itemRowCol: {
+    flexDirection: "column",
+    paddingVertical: SIZES.small,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+    gap: 8,
+  },
   itemInfo: {
     flex: 1,
     paddingRight: SIZES.medium,
   },
   inputWrapper: {
     width: 110, // Фиксированная ширина для полей ввода цен
+  },
+
+  // Segmented Control (переключатели)
+  segmentedContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: SIZES.radiusSm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    padding: 2,
+  },
+  segmentButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: SIZES.radiusSm - 2,
+  },
+  segmentActive: {
+    backgroundColor: COLORS.primary,
+  },
+  segmentText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  segmentTextActive: {
+    color: '#000',
   },
 
   // Плавающая кнопка (FAB)
@@ -326,10 +544,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: SIZES.large,
-  },
-  emptyContainer: {
-    paddingTop: 40,
-    alignItems: "center",
   },
   errorCard: {
     alignItems: "center",

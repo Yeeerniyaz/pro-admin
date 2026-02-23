@@ -1,12 +1,15 @@
 /**
  * @file src/screens/CreateOrderScreen.js
- * @description Экран создания нового объекта/лида (PROADMIN Mobile v11.0.13 Enterprise).
+ * @description Экран создания нового объекта/лида (PROADMIN Mobile v12.6.1 Enterprise).
  * Позволяет администратору заводить клиентов в CRM вручную, минуя Telegram-бота.
- * При сохранении бэкенд автоматически генерирует смету (BOM) на основе площади и типа стен.
- * ДОБАВЛЕНО: SafeAreaView, OLED дизайн (Black & Orange), строгие рамки без грязных теней.
- * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика и форма сохранены на 100%.
+ * При сохранении бэкенд автоматически генерирует смету (BOM) на основе площади, типа стен и тарифа.
+ * 🔥 ИСПРАВЛЕНО (v12.6.1): Добавлен обязательный выбор опции "Умный дом".
+ * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * ДОБАВЛЕНО: Поддержка Гибридного калькулятора — выбор типа объекта (Квартира/Дом/Коммерция).
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика и форма сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module CreateOrderScreen
+ * @version 12.6.1 (Smart Home Toggle Edition)
  */
 
 import React, { useState } from "react";
@@ -22,7 +25,6 @@ import {
   TouchableWithoutFeedback,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowLeft,
   PlusSquare,
@@ -30,6 +32,8 @@ import {
   Phone,
   Maximize,
   Home,
+  Cpu, // Иконка для Умного дома
+  CheckCircle
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -43,7 +47,11 @@ export default function CreateOrderScreen({ navigation }) {
   const [clientPhone, setClientPhone] = useState("");
   const [area, setArea] = useState("");
   const [rooms, setRooms] = useState("2");
+  
+  // Новые параметры для Гибридного калькулятора v12
+  const [propertyType, setPropertyType] = useState("apartment");
   const [wallType, setWallType] = useState("wall_concrete");
+  const [isSmartHome, setIsSmartHome] = useState(false); // 🔥 Добавлено: Состояние Умного дома
 
   const [loading, setLoading] = useState(false);
 
@@ -65,6 +73,8 @@ export default function CreateOrderScreen({ navigation }) {
         area: parseFloat(area),
         rooms: parseInt(rooms, 10),
         wallType,
+        propertyType,
+        isSmartHome, // 🔥 Передаем флаг Умного дома на бэкенд
       };
 
       await API.createManualOrder(payload);
@@ -83,7 +93,8 @@ export default function CreateOrderScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР
   // =============================================================================
   return (
-    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+    // 🔥 ИСПРАВЛЕНИЕ: Используем стандартный View вместо SafeAreaView для избежания двойных отступов
+    <View style={GLOBAL_STYLES.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -142,6 +153,69 @@ export default function CreateOrderScreen({ navigation }) {
               {/* 🎯 БЛОК 2: ПАРАМЕТРЫ ОБЪЕКТА */}
               <Text style={styles.sectionTitle}>2. Инженерные параметры</Text>
               <PeCard elevated={false} style={{ marginBottom: SIZES.large }}>
+                
+                {/* 🔥 ВЫБОР ТИПА ОБЪЕКТА (ДЛЯ ТАРИФА) */}
+                <Text style={styles.inputLabel}>Тип объекта</Text>
+                <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.wallBtn,
+                      propertyType === "apartment" && styles.wallBtnActive,
+                    ]}
+                    onPress={() => setPropertyType("apartment")}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <Text
+                      style={[
+                        styles.wallBtnText,
+                        propertyType === "apartment" && styles.wallBtnTextActive,
+                      ]}
+                    >
+                      🏢 Квартира (Стандарт)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.wallBtn,
+                      propertyType === "house" && styles.wallBtnActive,
+                    ]}
+                    onPress={() => setPropertyType("house")}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <Text
+                      style={[
+                        styles.wallBtnText,
+                        propertyType === "house" && styles.wallBtnTextActive,
+                      ]}
+                    >
+                      🏡 Частный дом / Коттедж
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.wallBtn,
+                      propertyType === "commercial" && styles.wallBtnActive,
+                    ]}
+                    onPress={() => setPropertyType("commercial")}
+                    activeOpacity={0.7}
+                    disabled={loading}
+                  >
+                    <Text
+                      style={[
+                        styles.wallBtnText,
+                        propertyType === "commercial" && styles.wallBtnTextActive,
+                      ]}
+                    >
+                      🏬 Коммерческое помещение
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* ПЛОЩАДЬ И КОМНАТЫ */}
                 <View style={styles.row}>
                   <View style={{ flex: 1, marginRight: SIZES.small }}>
                     <PeInput
@@ -167,9 +241,9 @@ export default function CreateOrderScreen({ navigation }) {
                   </View>
                 </View>
 
-                {/* Выбор типа стен */}
+                {/* ТИП СТЕН */}
                 <Text style={styles.inputLabel}>Тип стен (для штробления)</Text>
-                <View style={styles.wallTypeContainer}>
+                <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
                   <TouchableOpacity
                     style={[
                       styles.wallBtn,
@@ -227,6 +301,38 @@ export default function CreateOrderScreen({ navigation }) {
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* 🔥 УМНЫЙ ДОМ (НОВОЕ) */}
+                <Text style={styles.inputLabel}>Дополнительные опции</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.smartHomeBtn,
+                    isSmartHome && styles.smartHomeBtnActive,
+                  ]}
+                  onPress={() => setIsSmartHome(!isSmartHome)}
+                  activeOpacity={0.7}
+                  disabled={loading}
+                >
+                  <View style={GLOBAL_STYLES.rowCenter}>
+                    <Cpu 
+                      color={isSmartHome ? COLORS.primary : COLORS.textMuted} 
+                      size={20} 
+                      style={{ marginRight: 12 }} 
+                    />
+                    <Text
+                      style={[
+                        styles.smartHomeText,
+                        isSmartHome && styles.smartHomeTextActive,
+                      ]}
+                    >
+                      Система «Умный дом»
+                    </Text>
+                  </View>
+                  {isSmartHome && (
+                    <CheckCircle color={COLORS.primary} size={20} />
+                  )}
+                </TouchableOpacity>
+
               </PeCard>
 
               {/* 🔘 КНОПКА СОЗДАНИЯ */}
@@ -242,7 +348,7 @@ export default function CreateOrderScreen({ navigation }) {
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -322,4 +428,28 @@ const styles = StyleSheet.create({
   wallBtnTextActive: {
     color: COLORS.primary,
   },
+  
+  // 🔥 Стили для кнопки Умного дома
+  smartHomeBtn: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: SIZES.medium,
+    backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusSm,
+  },
+  smartHomeBtnActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
+  },
+  smartHomeText: {
+    fontSize: SIZES.fontBase,
+    color: COLORS.textMuted,
+    fontWeight: '600',
+  },
+  smartHomeTextActive: {
+    color: COLORS.textMain,
+  }
 });

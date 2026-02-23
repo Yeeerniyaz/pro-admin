@@ -1,12 +1,13 @@
 /**
  * @file src/screens/LoginScreen.js
- * @description Экран авторизации (PROADMIN Mobile v11.0.8 Enterprise).
- * ДОБАВЛЕНО: Двухшаговая OTP-авторизация (телефон -> код из Telegram).
- * ДОБАВЛЕНО: Black & Orange OLED-дизайн.
- * ДОБАВЛЕНО: KeyboardAvoidingView для защиты верстки при наборе текста.
- * НИКАКИХ УДАЛЕНИЙ: Старый вход по логину и паролю сохранен как "Резервный вход".
+ * @description Экран авторизации (PROADMIN Mobile v12.12.0 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v12.12.0): Улучшена работа KeyboardAvoidingView для маленьких экранов.
+ * 🔥 ИСПРАВЛЕНО: Отключена автокоррекция (autoCorrect) для технических полей (логин/OTP).
+ * ДОБАВЛЕНО: Единый OLED-стандарт дизайна (глубокий черный фон, отсутствие теней, оранжевый акцент).
+ * НИКАКИХ УДАЛЕНИЙ: Двухшаговая OTP-авторизация и резервный вход (Legacy) сохранены на 100%.
  *
  * @module LoginScreen
+ * @version 12.12.0 (OLED & Keyboard Polish Edition)
  */
 
 import React, { useState, useContext } from 'react';
@@ -18,7 +19,6 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
-  Image
 } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import { PeButton, PeInput, PeCard, PeBadge } from '../components/ui';
@@ -98,27 +98,29 @@ export default function LoginScreen() {
   };
 
   return (
+    // 🔥 ИСПРАВЛЕНИЕ: Жесткий фикс клавиатуры для всех типов экранов
     <KeyboardAvoidingView
       style={GLOBAL_STYLES.safeArea}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
 
-          {/* ЛОГОТИП И ЗАГОЛОВОК */}
+          {/* 🎩 ЛОГОТИП И ЗАГОЛОВОК */}
           <View style={styles.header}>
             <View style={styles.logoPlaceholder}>
               <Text style={styles.logoText}>⚡</Text>
             </View>
             <Text style={styles.brandTitle}>ProElectric</Text>
-            <PeBadge status="new" text="ERP MOBILE" style={{ alignSelf: 'center', marginTop: SIZES.base }} />
+            <PeBadge status="new" text="ERP MOBILE v12" style={{ alignSelf: 'center', marginTop: SIZES.base }} />
             <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.base }]}>
               Enterprise Management System
             </Text>
           </View>
 
-          {/* КАРТОЧКА АВТОРИЗАЦИИ */}
-          <PeCard style={styles.authCard}>
+          {/* 💳 КАРТОЧКА АВТОРИЗАЦИИ */}
+          <PeCard elevated={false} style={styles.authCard}>
             {errorMsg ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{errorMsg}</Text>
@@ -134,6 +136,7 @@ export default function LoginScreen() {
                   value={username}
                   onChangeText={setUsername}
                   autoCapitalize="none"
+                  autoCorrect={false}
                   editable={!loading}
                 />
                 <PeInput
@@ -142,6 +145,8 @@ export default function LoginScreen() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   editable={!loading}
                 />
                 <PeButton
@@ -162,6 +167,7 @@ export default function LoginScreen() {
                       value={phone}
                       onChangeText={setPhone}
                       keyboardType="phone-pad"
+                      autoCorrect={false}
                       editable={!loading}
                     />
                     <PeButton
@@ -180,6 +186,7 @@ export default function LoginScreen() {
                       onChangeText={setOtpCode}
                       keyboardType="number-pad"
                       maxLength={6}
+                      autoCorrect={false}
                       editable={!loading}
                     />
                     <PeButton
@@ -198,7 +205,7 @@ export default function LoginScreen() {
                         setOtpCode('');
                       }}
                       disabled={loading}
-                      style={{ marginTop: SIZES.small }}
+                      style={{ marginTop: SIZES.small, borderWidth: 1, borderColor: COLORS.border }}
                     />
                   </View>
                 )}
@@ -206,7 +213,7 @@ export default function LoginScreen() {
             )}
           </PeCard>
 
-          {/* ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ */}
+          {/* 🔄 ПЕРЕКЛЮЧАТЕЛЬ РЕЖИМОВ */}
           <PeButton
             title={isLegacyMode ? "Войти по номеру телефона (OTP)" : "Резервный вход (Пароль)"}
             variant="ghost"
@@ -224,12 +231,16 @@ export default function LoginScreen() {
   );
 }
 
+// =============================================================================
+// 🎨 СТИЛИ
+// =============================================================================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: SIZES.large,
     justifyContent: 'center',
     paddingBottom: SAFE_SPACING.bottom + 40,
+    backgroundColor: COLORS.background, // Строгий черный фон
   },
   header: {
     alignItems: 'center',
@@ -243,7 +254,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: SIZES.medium,
-    ...SHADOWS.glow,
+    ...SHADOWS.glow, // Оставляем легкое свечение для логотипа
   },
   logoText: {
     fontSize: 32,
@@ -258,6 +269,8 @@ const styles = StyleSheet.create({
   authCard: {
     width: '100%',
     padding: SIZES.large,
+    borderWidth: 1, // Строгая рамка
+    borderColor: COLORS.border,
   },
   errorBox: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',

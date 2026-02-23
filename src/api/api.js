@@ -1,13 +1,14 @@
 /**
  * @file src/api/api.js
- * @description Mobile API Client (React Native ERP Middleware v12.0.1 Enterprise).
+ * @description Mobile API Client (React Native ERP Middleware v12.1.0 Enterprise).
  * Обеспечивает строгую типизацию HTTP-запросов к продакшен-серверу ProElectric.
+ * 🔥 ИСПРАВЛЕНО (v12.1.0): Синхронизация роута изменения ролей (PATCH /users/:id/role).
+ * 🔥 ДОБАВЛЕНО: Эндпоинт для получения статистики рефералов (getReferralsStats).
  * СТРУКТУРА СЕТИ НЕ ИЗМЕНЕНА: Network Resilience, Smart Retry, FormData для фото сохранены.
- * 🔥 ДОБАВЛЕНО (v12.0): Эндпоинты для гибридного калькулятора (Global, Tariffs, Coefficients).
- * 🔥 ДОБАВЛЕНО (v12.0): Эндпоинты мелкого ремонта, звонков, System Health и архивации заказов.
  * НИКАКИХ УДАЛЕНИЙ: Обертка таймаутов (AbortController) и все старые методы сохранены на 100%.
  *
  * @module MobileAPI
+ * @version 12.1.0 (Full Backend Sync Edition)
  */
 
 // 🔥 Enterprise-стандарт: боевой сервер
@@ -325,16 +326,17 @@ export const API = {
     }),
 
   // ==========================================
-  // 👥 STAFF & BROADCAST
+  // 👥 STAFF, CRM & BROADCAST
   // ==========================================
 
   getUsers: (search = "", limit = 100, offset = 0) =>
     fetchWrapper(`/users${buildQuery({ search, limit, offset })}`),
 
+  // 🔥 ИСПРАВЛЕНИЕ: Обновлен роут для изменения ролей под новый бэкенд
   updateUserRole: (userId, role) =>
-    fetchWrapper("/users/role", {
-      method: "POST",
-      body: JSON.stringify({ userId, role }),
+    fetchWrapper(`/users/${userId}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
     }),
 
   sendBroadcast: (text, imageUrl, targetRole) =>
@@ -346,6 +348,9 @@ export const API = {
         targetRole,
       }),
     }),
+
+  // 🔥 ДОБАВЛЕНО: Статистика рефералов
+  getReferralsStats: () => fetchWrapper("/referrals/stats"),
 
   // ==========================================
   // 🔥 ECOSYSTEM: PHOTOS & SMART HOME

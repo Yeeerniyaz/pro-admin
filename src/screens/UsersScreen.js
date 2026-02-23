@@ -1,13 +1,15 @@
 /**
  * @file src/screens/UsersScreen.js
- * @description Экран управления персоналом и доступами (PROADMIN Mobile v11.0.17 Enterprise).
+ * @description Экран управления персоналом и доступами (PROADMIN Mobile v12.8.0 Enterprise).
  * Позволяет администратору просматривать базу пользователей из Telegram-бота и менять их роли.
+ * 🔥 ИСПРАВЛЕНО (v12.8.0): Убран двойной отступ сверху (SafeAreaView заменен на View).
+ * 🔥 ДОБАВЛЕНО: Интеграция Реферальной системы. Появилась вкладка со списком рефералов.
  * ДОБАВЛЕНО: Кнопка перехода на BroadcastScreen, исправление отступов для Android.
- * ДОБАВЛЕНО: SafeAreaView для защиты верстки на современных экранах.
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (замена синих акцентов на оранжевые, строгие рамки).
  * НИКАКИХ УДАЛЕНИЙ: Вся кастомная логика бейджей (isStaff, isOwner) и стейты сохранены на 100%.
  *
  * @module UsersScreen
+ * @version 12.8.0 (Referral System & Top Margin Fix Edition)
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -23,7 +25,6 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context"; // 🔥 ДОБАВЛЕНО: Защита от челок
 import {
   Users,
   Shield,
@@ -31,7 +32,8 @@ import {
   User as UserIcon,
   X,
   CheckCircle,
-  Radio, // 🔥 Иконка для кнопки рассылки
+  Radio, // Иконка для кнопки рассылки
+  Share2 // Иконка для рефералов
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -47,15 +49,20 @@ const ROLE_OPTIONS = [
     desc: "Доступ к объектам и сметам",
   },
   { id: "admin", label: "Администратор (admin)", desc: "Полный доступ к ERP" },
-  { id: "owner", label: "Шеф (owner)", desc: "Абсолютный системный контроль" }, // 🔥 Добавлено для полноты системы
+  { id: "owner", label: "Шеф (owner)", desc: "Абсолютный системный контроль" },
 ];
 
 export default function UsersScreen({ navigation }) {
-  // 🔥 Добавлен пропс navigation
+  // Стейты списков
   const [users, setUsers] = useState([]);
+  const [referrals, setReferrals] = useState([]);
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Управление вкладками
+  const [activeTab, setActiveTab] = useState("users"); // 'users' или 'referrals'
 
   // Стейты модалки смены роли
   const [modalVisible, setModalVisible] = useState(false);
@@ -65,15 +72,20 @@ export default function UsersScreen({ navigation }) {
   // =============================================================================
   // 📡 ЗАГРУЗКА ДАННЫХ
   // =============================================================================
-  const fetchUsers = async (isRefresh = false) => {
+  const fetchData = async (isRefresh = false) => {
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      const data = await API.getUsers("", 100, 0); // Берем 100 последних пользователей
-      setUsers(data || []);
+      if (activeTab === "users") {
+        const data = await API.getUsers("", 100, 0); // Берем 100 последних пользователей
+        setUsers(data || []);
+      } else {
+        const refData = await API.getReferralsStats();
+        setReferrals(refData || []);
+      }
     } catch (err) {
-      setError(err.message || "Ошибка загрузки базы пользователей");
+      setError(err.message || "Ошибка загрузки базы");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -81,13 +93,13 @@ export default function UsersScreen({ navigation }) {
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    fetchData();
+  }, [activeTab]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchUsers(true);
-  }, []);
+    fetchData(true);
+  }, [activeTab]);
 
   // =============================================================================
   // 🔄 ОБРАБОТЧИК СМЕНЫ РОЛИ
@@ -130,15 +142,16 @@ export default function UsersScreen({ navigation }) {
   };
 
   // =============================================================================
-  // 🧩 РЕНДЕР КАРТОЧКИ ПОЛЬЗОВАТЕЛЯ (FLATLIST ITEM)
+  // 🧩 РЕНДЕР КАРТОЧЕК
   // =============================================================================
+
+  // Карточка Юзера
   const renderUserItem = ({ item }) => {
     const isStaff =
       item.role === "admin" || item.role === "owner" || item.role === "manager";
     const isOwner = item.role === "owner";
 
     return (
-      // 🔥 Изменено elevated=false для OLED дизайна (убрали мыльные тени)
       <PeCard elevated={false} style={styles.userCard}>
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
@@ -159,7 +172,6 @@ export default function UsersScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Кастомный бейдж роли (ваша логика сохранена на 100%) */}
           <View style={[styles.roleBadge, isStaff && styles.roleBadgeStaff]}>
             <Text
               style={[
@@ -199,12 +211,51 @@ export default function UsersScreen({ navigation }) {
     );
   };
 
+  // Карточка Реферала
+  const renderReferralItem = ({ item }) => {
+    return (
+      <PeCard elevated={false} style={styles.userCard}>
+        <View style={GLOBAL_STYLES.rowBetween}>
+          <View style={GLOBAL_STYLES.rowCenter}>
+            <View style={[styles.avatar, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+              <Share2 color={COLORS.success} size={20} />
+            </View>
+            <View>
+              <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>
+                {item.first_name || "Без имени"}
+              </Text>
+              <Text style={GLOBAL_STYLES.textSmall}>
+                ID: {item.telegram_id} • Тел: {item.phone || "—"}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={GLOBAL_STYLES.rowBetween}>
+          <View>
+            <Text style={GLOBAL_STYLES.textSmall}>Пригласил:</Text>
+            <Text style={[GLOBAL_STYLES.textBody, { fontWeight: '700' }]}>{item.invited_count} чел.</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={GLOBAL_STYLES.textSmall}>Баланс бонусов:</Text>
+            <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.success, fontWeight: '700' }]}>
+              {parseFloat(item.referral_balance || 0).toLocaleString("ru-RU")} ₸
+            </Text>
+          </View>
+        </View>
+      </PeCard>
+    );
+  };
+
   // =============================================================================
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 Обернуто в SafeAreaView
-    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+    // 🔥 ИСПРАВЛЕНИЕ: Используем View вместо SafeAreaView для избежания двойных отступов
+    <View style={GLOBAL_STYLES.safeArea}>
+      
       {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ РАССЫЛКИ */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
@@ -213,7 +264,7 @@ export default function UsersScreen({ navigation }) {
           </View>
           <View>
             <Text style={GLOBAL_STYLES.h1}>Персонал</Text>
-            <Text style={GLOBAL_STYLES.textMuted}>База Telegram (v11.0.17)</Text>
+            <Text style={GLOBAL_STYLES.textMuted}>База Telegram & CRM</Text>
           </View>
         </View>
 
@@ -227,14 +278,32 @@ export default function UsersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* 📜 СПИСОК ПОЛЬЗОВАТЕЛЕЙ */}
+      {/* 🎛 Вкладки переключения (Пользователи / Рефералы) */}
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity 
+          style={[styles.tabBtn, activeTab === "users" && styles.tabBtnActive]} 
+          onPress={() => setActiveTab("users")}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, activeTab === "users" && styles.tabTextActive]}>Пользователи</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tabBtn, activeTab === "referrals" && styles.tabBtnActive]} 
+          onPress={() => setActiveTab("referrals")}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.tabText, activeTab === "referrals" && styles.tabTextActive]}>Рефералы</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 📜 СПИСОК (Адаптивный под вкладку) */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
           <TouchableOpacity
-            onPress={() => fetchUsers()}
+            onPress={() => fetchData()}
             style={{ marginTop: 10 }}
           >
             <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
@@ -246,9 +315,9 @@ export default function UsersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={users}
+          data={activeTab === "users" ? users : referrals}
           keyExtractor={(item) => item.telegram_id.toString()}
-          renderItem={renderUserItem}
+          renderItem={activeTab === "users" ? renderUserItem : renderReferralItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -261,11 +330,13 @@ export default function UsersScreen({ navigation }) {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Users color={COLORS.surfaceHover} size={48} />
-              <Text
-                style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}
-              >
-                База пользователей пуста
+              {activeTab === "users" ? (
+                <Users color={COLORS.surfaceHover} size={48} />
+              ) : (
+                <Share2 color={COLORS.surfaceHover} size={48} />
+              )}
+              <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}>
+                {activeTab === "users" ? "База пользователей пуста" : "Никто еще никого не пригласил"}
               </Text>
             </View>
           }
@@ -335,7 +406,7 @@ export default function UsersScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -369,6 +440,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: SIZES.medium,
   },
+  
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: SIZES.large,
+    paddingVertical: SIZES.small,
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  tabBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    marginRight: SIZES.small,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  tabBtnActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
+  },
+  tabText: {
+    color: COLORS.textMuted,
+    fontSize: SIZES.fontSmall,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: COLORS.primary,
+  },
+
   listContent: {
     padding: SIZES.large,
     paddingBottom: Platform.OS === "android" ? 100 : 40, // 🔥 Ваше исправление для Android Navigation Bar
@@ -378,7 +480,7 @@ const styles = StyleSheet.create({
   userCard: {
     padding: SIZES.medium,
     marginBottom: SIZES.medium,
-    borderWidth: 1, // 🔥 Добавлена рамка вместо тени
+    borderWidth: 1, 
     borderColor: COLORS.border,
   },
   avatar: {

@@ -1,9 +1,9 @@
 /**
  * @file src/context/AuthContext.js
- * @description Глобальное ядро авторизации (PROADMIN Mobile v11.0.21 Enterprise).
- * ИСПРАВЛЕНО: Добавлен дефолтный экспорт для устранения ошибки TypeError.
+ * @description Глобальное ядро авторизации (PROADMIN Mobile v12.13.0 Enterprise).
+ * ИСПРАВЛЕНО: Улучшена обработка ошибок сети при разлогинивании.
  * ДОБАВЛЕНО: Полная поддержка OTP-авторизации (Telegram) и Legacy-входа (Пароль).
- * НИКАКИХ УДАЛЕНИЙ И СОКРАЩЕНИЙ: Все функции сохранены полностью.
+ * НИКАКИХ УДАЛЕНИЙ И СОКРАЩЕНИЙ: Все функции сохранены полностью. ПОЛНЫЙ КОД.
  *
  * @module AuthContext
  */
@@ -90,9 +90,9 @@ export const AuthProvider = ({ children }) => {
     try {
       await API.logout();
     } catch (error) {
-      console.error('[AuthContext 🛡️] Network error during logout:', error.message);
+      console.warn('[AuthContext 🛡️] Network warning during logout, clearing local state anyway.');
     } finally {
-      setUser(null);
+      setUser(null); // Гарантированно стираем локальный стейт, даже если сервер недоступен
     }
   };
 

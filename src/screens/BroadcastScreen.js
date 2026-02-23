@@ -1,13 +1,15 @@
 /**
  * @file src/screens/BroadcastScreen.js
- * @description Центр уведомлений и рассылок (PROADMIN Mobile v11.0.18 Enterprise).
+ * @description Центр уведомлений и рассылок (PROADMIN Mobile v12.11.0 Enterprise).
  * Интеграция с Telegram-ботом: позволяет админу делать массовые рассылки пользователям по ролям.
+ * 🔥 ИСПРАВЛЕНО (v12.11.0): Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * 🔥 ИСПРАВЛЕНО: Жесткий фикс клавиатуры при вводе длинного текста рассылки.
  * ДОБАВЛЕНО: Кнопка "Назад" для корректной навигации в стеке (возврат на UsersScreen).
- * ДОБАВЛЕНО: SafeAreaView для защиты верстки от системных элементов ОС.
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки, оранжевые акценты).
- * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (API, Confirm Dialog, State) сохранена на 100%.
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (API, Confirm Dialog, State) сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module BroadcastScreen
+ * @version 12.11.0 (Top Margin & Keyboard Fix Edition)
  */
 
 import React, { useState } from "react";
@@ -23,14 +25,13 @@ import {
   TouchableWithoutFeedback,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context"; // 🔥 Защита от челок
 import {
   Radio,
   Send,
   Users,
   ShieldAlert,
   Image as ImageIcon,
-  ArrowLeft, // 🔥 Иконка для кнопки назад
+  ArrowLeft,
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
@@ -123,10 +124,13 @@ export default function BroadcastScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    <SafeAreaView style={GLOBAL_STYLES.safeArea} edges={['top']}>
+    // 🔥 ИСПРАВЛЕНИЕ: Используем обычный View для предотвращения двойных отступов
+    <View style={GLOBAL_STYLES.safeArea}>
+      {/* 🔥 ИСПРАВЛЕНИЕ: Жесткий фикс клавиатуры для длинных текстов */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "padding"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={{ flex: 1 }}>
@@ -137,6 +141,7 @@ export default function BroadcastScreen({ navigation }) {
                 onPress={() => navigation.goBack()}
                 style={styles.backBtn}
                 disabled={loading}
+                activeOpacity={0.7}
               >
                 <ArrowLeft color={COLORS.textMain} size={24} />
               </TouchableOpacity>
@@ -244,12 +249,12 @@ export default function BroadcastScreen({ navigation }) {
               </PeCard>
 
               {/* Отступ для комфортного скролла над клавиатурой */}
-              <View style={{ height: 40 }} />
+              <View style={{ height: 150 }} />
             </ScrollView>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

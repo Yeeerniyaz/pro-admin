@@ -1,19 +1,21 @@
 /**
  * @file src/navigation/MainTabs.js
- * @description Главная навигация приложения (PROADMIN Mobile v11.0.9 Enterprise).
+ * @description Главная навигация приложения (PROADMIN Mobile v12.13.0 Enterprise).
+ * 🔥 ДОБАВЛЕНО (v12.13.0): Динамический расчет высоты TabBar через useSafeAreaInsets.
+ * Теперь меню выглядит идеально на любых экранах (iPhone с челкой, Android с жестами).
  * ДОБАВЛЕНО: Role-Based Access Control (RBAC). Изоляция экранов для Бригадиров и Администраторов.
- * ИСПРАВЛЕНО: Динамические названия вкладок в зависимости от роли.
- * НИКАКИХ УДАЛЕНИЙ: Фиксы наложения на системные кнопки Android (Safe Area) сохранены.
+ * НИКАКИХ УДАЛЕНИЙ: Вся логика роутинга сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module Navigation
  */
 
 import React, { useContext } from 'react';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; // 🔥 Динамические отступы
 import { LayoutDashboard, Briefcase, DollarSign, Sliders, Users } from 'lucide-react-native';
 import { COLORS, SHADOWS } from '../theme/theme';
-import { AuthContext } from '../context/AuthContext'; // 🔥 Подключаем ядро авторизации
+import { AuthContext } from '../context/AuthContext'; 
 
 // Импорт экранов
 import DashboardScreen from '../screens/DashboardScreen';
@@ -25,8 +27,8 @@ import SettingsScreen from '../screens/SettingsScreen';
 const Tab = createBottomTabNavigator();
 
 export default function MainTabs() {
-  // Получаем текущего пользователя для динамического роутинга
   const { user } = useContext(AuthContext);
+  const insets = useSafeAreaInsets(); // 🔥 Получаем безопасные зоны устройства
 
   // Определяем права доступа
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
@@ -36,12 +38,19 @@ export default function MainTabs() {
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: COLORS.primary, // Будет нашим Electric Orange
+        // 🔥 Динамические стили для TabBar (зависит от модели телефона)
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: 60 + insets.bottom, 
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
+          }
+        ],
+        tabBarActiveTintColor: COLORS.primary, 
         tabBarInactiveTintColor: COLORS.textMuted,
       }}
     >
-      {/* 📊 ОБЗОР: Доступно всем (Менеджеры увидят свою стату, Админы - глобальную) */}
+      {/* 📊 ОБЗОР: Доступно всем */}
       <Tab.Screen
         name="DashboardTab"
         component={DashboardScreen}
@@ -51,7 +60,7 @@ export default function MainTabs() {
         }}
       />
 
-      {/* 🛠 ОБЪЕКТЫ: Доступно всем, но название меняется в зависимости от роли */}
+      {/* 🛠 ОБЪЕКТЫ: Название меняется динамически */}
       <Tab.Screen
         name="OrdersTab"
         component={OrdersScreen}
@@ -99,9 +108,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    // 🔥 Исправлено: увеличен отступ для Android (Safe Area)
-    height: Platform.OS === 'ios' ? 88 : 75,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 15,
+    paddingTop: 10,
     ...SHADOWS.medium,
   },
 });
