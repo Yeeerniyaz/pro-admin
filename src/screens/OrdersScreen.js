@@ -1,15 +1,15 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v12.9.0 Enterprise).
+ * @description Экран реестра объектов (PROADMIN Mobile v12.11.0 Enterprise).
  * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
- * 🔥 ДОБАВЛЕНО (v12.9.0): Глобальные вкладки для работы с "Мелким ремонтом" и "Запросами звонков".
- * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
- * ДОБАВЛЕНО: Индикаторы "Умный дом" и "Тариф/Тип объекта" прямо в списке заказов.
- * ДОБАВЛЕНО: OLED-дизайн (строгие рамки, замена синих акцентов на оранжевые).
- * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и RefreshControl сохранена на 100%.
+ * 🔥 ДОБАВЛЕНО (v12.11.0): Умный локальный поиск (по ID, Имени, Телефону, Адресу, Описанию).
+ * 🔥 ИСПРАВЛЕНО: Отсутствие "черной дыры" сверху (используется View вместо SafeAreaView).
+ * ДОБАВЛЕНО: Глобальные вкладки для работы с "Мелким ремонтом" и "Запросами звонков".
+ * ДОБАВЛЕНО: OLED-дизайн (строгие рамки, оранжевые акценты, индикаторы Умного дома).
+ * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и модалок сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module OrdersScreen
- * @version 12.9.0 (Multi-Pipeline & Top Margin Fix Edition)
+ * @version 12.11.0 (Ultimate Search & Multi-Pipeline Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -34,13 +34,14 @@ import {
   HardHat,
   Cpu,
   Layers,
-  Wrench, // Иконка для Мелкого ремонта
-  PhoneCall // Иконка для Звонков
+  Wrench,
+  PhoneCall,
+  Search // Иконка для поиска
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
-import { PeCard, PeBadge } from "../components/ui";
+import { PeCard, PeBadge, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 import { AuthContext } from "../context/AuthContext";
 
@@ -53,9 +54,7 @@ const formatDate = (dateString) => {
   if (!dateString) return "—";
   const d = new Date(dateString);
   return d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
+    day: "2-digit", month: "2-digit", year: "numeric",
   });
 };
 
@@ -69,10 +68,10 @@ const STATUS_FILTERS = [
 ];
 
 export default function OrdersScreen({ navigation }) {
-  const { user } = useContext(AuthContext); // Подключаем сессию для RBAC
+  const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
-  // 🎛 Глобальное состояние вкладок (Комплекс / Мелкий / Звонки)
+  // 🎛 Глобальные вкладки (Комплекс / Мелкий / Звонки)
   const [globalTab, setGlobalTab] = useState("complex");
 
   const [orders, setOrders] = useState([]);
@@ -84,11 +83,13 @@ export default function OrdersScreen({ navigation }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState(null);
 
-  // Стейт для модалки смены статуса (Мелкий ремонт и Звонки)
+  // 🔥 СТЕЙТ ДЛЯ ПОИСКА
+  const [searchQuery, setSearchQuery] = useState("");
+
   const [statusModal, setStatusModal] = useState({ visible: false, id: null, type: null });
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ В ЗАВИСИМОСТИ ОТ ВЫБРАННОЙ ВКЛАДКИ
+  // 📡 ЗАГРУЗКА И ФИЛЬТРАЦИЯ ДАННЫХ
   // =============================================================================
   const fetchData = async (isRefresh = false) => {
     try {
@@ -113,7 +114,6 @@ export default function OrdersScreen({ navigation }) {
     }
   };
 
-  // Перезапрос при смене вкладки или фильтра
   useEffect(() => {
     fetchData();
   }, [statusFilter, globalTab]);
@@ -122,6 +122,23 @@ export default function OrdersScreen({ navigation }) {
     setRefreshing(true);
     fetchData(true);
   }, [statusFilter, globalTab]);
+
+  // 🔥 ЛОКАЛЬНЫЙ ПОИСК (МГНОВЕННЫЙ ФИЛЬТР)
+  const getFilteredData = () => {
+    let list = globalTab === 'complex' ? orders : globalTab === 'minor' ? minorRepairs : callRequests;
+
+    if (searchQuery.trim()) {
+      const lowerQ = searchQuery.toLowerCase();
+      list = list.filter(item =>
+        item.id?.toString().includes(lowerQ) ||
+        item.client_name?.toLowerCase().includes(lowerQ) ||
+        item.client_phone?.toLowerCase().includes(lowerQ) ||
+        item.details?.address?.toLowerCase().includes(lowerQ) ||
+        item.description?.toLowerCase().includes(lowerQ) // Для мелкого ремонта
+      );
+    }
+    return list;
+  };
 
   // =============================================================================
   // 🔄 ОБРАБОТКА СТАТУСОВ ДЛЯ МЕЛКОГО РЕМОНТА И ЗВОНКОВ
@@ -136,13 +153,10 @@ export default function OrdersScreen({ navigation }) {
       setLoading(true);
       setStatusModal({ visible: false, id: null, type: null });
 
-      if (type === 'minor') {
-        await API.updateMinorRepairStatus(id, newStatus);
-      } else if (type === 'call') {
-        await API.updateCallRequestStatus(id, newStatus);
-      }
+      if (type === 'minor') await API.updateMinorRepairStatus(id, newStatus);
+      else if (type === 'call') await API.updateCallRequestStatus(id, newStatus);
 
-      fetchData(true); // Перезагружаем данные без лоадера на весь экран
+      fetchData(true);
     } catch (e) {
       Alert.alert("Ошибка", e.message);
       setLoading(false);
@@ -150,25 +164,20 @@ export default function OrdersScreen({ navigation }) {
   };
 
   // =============================================================================
-  // 🧩 РЕНДЕР КАРТОЧЕК (FLATLIST ITEMS)
+  // 🧩 РЕНДЕР КАРТОЧЕК
   // =============================================================================
 
-  // 1. Карточка Комплексного Заказа
   const renderOrderItem = ({ item }) => {
     const params = item.details?.params || {};
     const area = item.area || params.area || 0;
     const isSmartHome = params.isSmartHome === true;
     const propTypeRaw = params.propertyType || 'apartment';
     const propTypeName = propTypeRaw === 'house' ? 'Дом' : propTypeRaw === 'commercial' ? 'Коммерция' : 'Квартира';
-
     const financials = item.details?.financials || {};
     const netProfit = financials.net_profit !== undefined ? financials.net_profit : item.total_price;
 
     return (
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => navigation.navigate("OrderDetail", { order: item })}
-      >
+      <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate("OrderDetail", { order: item })}>
         <PeCard elevated={false} style={styles.orderCard}>
           <View style={GLOBAL_STYLES.rowBetween}>
             <View style={GLOBAL_STYLES.rowCenter}>
@@ -236,7 +245,6 @@ export default function OrdersScreen({ navigation }) {
     );
   };
 
-  // 2. Карточка Мелкого ремонта
   const renderMinorItem = ({ item }) => (
     <PeCard elevated={false} style={styles.orderCard}>
       <View style={GLOBAL_STYLES.rowBetween}>
@@ -278,7 +286,6 @@ export default function OrdersScreen({ navigation }) {
     </PeCard>
   );
 
-  // 3. Карточка Звонка
   const renderCallItem = ({ item }) => (
     <PeCard elevated={false} style={styles.orderCard}>
       <View style={GLOBAL_STYLES.rowBetween}>
@@ -321,23 +328,28 @@ export default function OrdersScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Используем View вместо SafeAreaView для фикса черной полосы
+    // 🔥 Используем View для фикса черной полосы (дублирования отступа)
     <View style={GLOBAL_STYLES.safeArea}>
 
-      {/* 🎩 ШАПКА ЭКРАНА */}
+      {/* 🎩 ШАПКА ЭКРАНА (OLED Дизайн) */}
       <View style={[styles.header, GLOBAL_STYLES.rowBetween]}>
-        <View>
-          <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Объекты" : "Мои объекты"}</Text>
-          <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "Реестр и сметы" : "Объекты и Биржа"}</Text>
+        <View style={GLOBAL_STYLES.rowCenter}>
+          <View style={styles.iconWrapper}>
+            <Briefcase color={COLORS.primary} size={24} />
+          </View>
+          <View>
+            <Text style={GLOBAL_STYLES.h1}>{isAdmin ? "Объекты" : "Мои объекты"}</Text>
+            <Text style={GLOBAL_STYLES.textMuted}>{isAdmin ? "Реестр и сметы" : "Объекты и Биржа"}</Text>
+          </View>
         </View>
         {isAdmin && (
-          <TouchableOpacity onPress={() => navigation.navigate("CreateOrder")} activeOpacity={0.7}>
-            <PlusCircle color={COLORS.primary} size={32} />
+          <TouchableOpacity onPress={() => navigation.navigate("CreateOrder")} activeOpacity={0.7} style={styles.addBtn}>
+            <PlusCircle color={COLORS.primary} size={28} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* 🗂 ГЛОБАЛЬНЫЕ ВКЛАДКИ (Комплекс / Мелкий / Звонки) */}
+      {/* 🗂 ГЛОБАЛЬНЫЕ ВКЛАДКИ */}
       <View style={styles.globalTabsContainer}>
         <TouchableOpacity style={[styles.globalTab, globalTab === 'complex' && styles.globalTabActive]} onPress={() => setGlobalTab('complex')}>
           <Briefcase color={globalTab === 'complex' ? COLORS.primary : COLORS.textMuted} size={16} />
@@ -353,7 +365,18 @@ export default function OrdersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Показываем только для вкладки "Комплекс") */}
+      {/* 🔍 ПАНЕЛЬ ПОИСКА */}
+      <View style={styles.searchContainer}>
+        <PeInput
+          placeholder="Поиск по ID, имени, телефону..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          icon={<Search color={COLORS.textMuted} size={18} />}
+          style={{ marginBottom: 0 }}
+        />
+      </View>
+
+      {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Только для "Комплекс") */}
       {globalTab === 'complex' && (
         <View style={styles.filtersContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScrollContent}>
@@ -392,7 +415,7 @@ export default function OrdersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={globalTab === 'complex' ? orders : globalTab === 'minor' ? minorRepairs : callRequests}
+          data={getFilteredData()} // 🔥 Используем отфильтрованные данные поиска
           keyExtractor={(item) => item.id.toString()}
           renderItem={globalTab === 'complex' ? renderOrderItem : globalTab === 'minor' ? renderMinorItem : renderCallItem}
           contentContainerStyle={styles.listContent}
@@ -404,7 +427,7 @@ export default function OrdersScreen({ navigation }) {
             <View style={styles.emptyContainer}>
               <Briefcase color={COLORS.surfaceHover} size={48} />
               <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium, textAlign: "center" }]}>
-                В этой категории пока нет записей.
+                {searchQuery ? "По вашему запросу ничего не найдено." : "В этой категории пока нет записей."}
               </Text>
             </View>
           }
@@ -449,9 +472,33 @@ export default function OrdersScreen({ navigation }) {
 // =============================================================================
 const styles = StyleSheet.create({
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
+    backgroundColor: COLORS.background, // OLED Black
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  iconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: "rgba(255, 107, 0, 0.1)", // Фирменный оранжевый
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: SIZES.medium,
+  },
+  addBtn: {
+    padding: 8,
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
+    borderRadius: 10,
+  },
+  searchContainer: {
+    paddingHorizontal: SIZES.large,
+    paddingVertical: SIZES.small,
     backgroundColor: COLORS.background,
   },
   globalTabsContainer: {
@@ -525,6 +572,10 @@ const styles = StyleSheet.create({
   orderCard: {
     padding: SIZES.medium,
     marginBottom: SIZES.medium,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface, // Строгий OLED дизайн
+    borderRadius: SIZES.radiusMd,
   },
   orderId: {
     fontSize: SIZES.fontMedium,

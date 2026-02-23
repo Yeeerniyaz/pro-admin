@@ -1,15 +1,14 @@
 /**
  * @file src/screens/UsersScreen.js
- * @description Экран управления персоналом и доступами (PROADMIN Mobile v12.8.0 Enterprise).
+ * @description Экран управления персоналом и доступами (PROADMIN Mobile v12.9.0 Enterprise).
  * Позволяет администратору просматривать базу пользователей из Telegram-бота и менять их роли.
- * 🔥 ИСПРАВЛЕНО (v12.8.0): Убран двойной отступ сверху (SafeAreaView заменен на View).
- * 🔥 ДОБАВЛЕНО: Интеграция Реферальной системы. Появилась вкладка со списком рефералов.
- * ДОБАВЛЕНО: Кнопка перехода на BroadcastScreen, исправление отступов для Android.
+ * 🔥 ДОБАВЛЕНО (v12.9.0): Умный локальный поиск по базе сотрудников и рефералов.
+ * ИСПРАВЛЕНО: Убран двойной отступ сверху (SafeAreaView заменен на View).
+ * ДОБАВЛЕНО: Интеграция Реферальной системы. Появилась вкладка со списком рефералов.
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (замена синих акцентов на оранжевые, строгие рамки).
  * НИКАКИХ УДАЛЕНИЙ: Вся кастомная логика бейджей (isStaff, isOwner) и стейты сохранены на 100%.
  *
  * @module UsersScreen
- * @version 12.8.0 (Referral System & Top Margin Fix Edition)
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -32,28 +31,24 @@ import {
   User as UserIcon,
   X,
   CheckCircle,
-  Radio, // Иконка для кнопки рассылки
-  Share2 // Иконка для рефералов
+  Radio, 
+  Share2,
+  Search // Иконка поиска
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
 import { API } from "../api/api";
-import { PeCard, PeBadge, PeButton } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
+import { PeCard, PeButton, PeInput } from "../components/ui";
+import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 
 const ROLE_OPTIONS = [
   { id: "user", label: "Клиент (user)", desc: "Только создание заявок в боте" },
-  {
-    id: "manager",
-    label: "Мастер (manager)",
-    desc: "Доступ к объектам и сметам",
-  },
+  { id: "manager", label: "Мастер (manager)", desc: "Доступ к объектам и сметам" },
   { id: "admin", label: "Администратор (admin)", desc: "Полный доступ к ERP" },
   { id: "owner", label: "Шеф (owner)", desc: "Абсолютный системный контроль" },
 ];
 
 export default function UsersScreen({ navigation }) {
-  // Стейты списков
   const [users, setUsers] = useState([]);
   const [referrals, setReferrals] = useState([]);
   
@@ -61,16 +56,17 @@ export default function UsersScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   
-  // Управление вкладками
-  const [activeTab, setActiveTab] = useState("users"); // 'users' или 'referrals'
+  const [activeTab, setActiveTab] = useState("users"); // 'users' | 'referrals'
+  
+  // 🔥 Стейт для локального поиска
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Стейты модалки смены роли
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [roleUpdating, setRoleUpdating] = useState(false);
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ
+  // 📡 ЗАГРУЗКА И ФИЛЬТРАЦИЯ
   // =============================================================================
   const fetchData = async (isRefresh = false) => {
     try {
@@ -78,7 +74,7 @@ export default function UsersScreen({ navigation }) {
       if (!isRefresh) setLoading(true);
 
       if (activeTab === "users") {
-        const data = await API.getUsers("", 100, 0); // Берем 100 последних пользователей
+        const data = await API.getUsers("", 100, 0); 
         setUsers(data || []);
       } else {
         const refData = await API.getReferralsStats();
@@ -101,6 +97,22 @@ export default function UsersScreen({ navigation }) {
     fetchData(true);
   }, [activeTab]);
 
+  // 🔥 ЛОКАЛЬНЫЙ ПОИСК
+  const getFilteredData = () => {
+    let list = activeTab === "users" ? users : referrals;
+    
+    if (searchQuery.trim()) {
+      const lowerQ = searchQuery.toLowerCase();
+      list = list.filter(item => 
+        item.telegram_id?.toString().includes(lowerQ) ||
+        item.first_name?.toLowerCase().includes(lowerQ) ||
+        item.username?.toLowerCase().includes(lowerQ) ||
+        item.phone?.toLowerCase().includes(lowerQ)
+      );
+    }
+    return list;
+  };
+
   // =============================================================================
   // 🔄 ОБРАБОТЧИК СМЕНЫ РОЛИ
   // =============================================================================
@@ -120,20 +132,14 @@ export default function UsersScreen({ navigation }) {
     try {
       await API.updateUserRole(selectedUser.telegram_id, newRole);
 
-      // Локально обновляем стейт, чтобы не дергать базу лишний раз
       setUsers((prevUsers) =>
         prevUsers.map((u) =>
-          u.telegram_id === selectedUser.telegram_id
-            ? { ...u, role: newRole }
-            : u,
+          u.telegram_id === selectedUser.telegram_id ? { ...u, role: newRole } : u
         ),
       );
 
       setModalVisible(false);
-      Alert.alert(
-        "Успех",
-        `Права доступа для ${selectedUser.first_name} обновлены.`,
-      );
+      Alert.alert("Успех", `Права доступа для ${selectedUser.first_name} обновлены.`);
     } catch (err) {
       Alert.alert("Ошибка", err.message || "Не удалось изменить роль");
     } finally {
@@ -144,11 +150,8 @@ export default function UsersScreen({ navigation }) {
   // =============================================================================
   // 🧩 РЕНДЕР КАРТОЧЕК
   // =============================================================================
-
-  // Карточка Юзера
   const renderUserItem = ({ item }) => {
-    const isStaff =
-      item.role === "admin" || item.role === "owner" || item.role === "manager";
+    const isStaff = item.role === "admin" || item.role === "owner" || item.role === "manager";
     const isOwner = item.role === "owner";
 
     return (
@@ -156,29 +159,16 @@ export default function UsersScreen({ navigation }) {
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
             <View style={[styles.avatar, isStaff && styles.avatarStaff]}>
-              {isStaff ? (
-                <Shield color={COLORS.primary} size={20} />
-              ) : (
-                <UserIcon color={COLORS.textMuted} size={20} />
-              )}
+              {isStaff ? <Shield color={COLORS.primary} size={20} /> : <UserIcon color={COLORS.textMuted} size={20} />}
             </View>
             <View>
-              <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>
-                {item.first_name || "Без имени"}
-              </Text>
-              <Text style={GLOBAL_STYLES.textSmall}>
-                @{item.username || "нет_username"} • ID: {item.telegram_id}
-              </Text>
+              <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>{item.first_name || "Без имени"}</Text>
+              <Text style={GLOBAL_STYLES.textSmall}>@{item.username || "нет_username"} • ID: {item.telegram_id}</Text>
             </View>
           </View>
 
           <View style={[styles.roleBadge, isStaff && styles.roleBadgeStaff]}>
-            <Text
-              style={[
-                styles.roleBadgeText,
-                isStaff && styles.roleBadgeTextStaff,
-              ]}
-            >
+            <Text style={[styles.roleBadgeText, isStaff && styles.roleBadgeTextStaff]}>
               {item.role.toUpperCase()}
             </Text>
           </View>
@@ -188,20 +178,14 @@ export default function UsersScreen({ navigation }) {
 
         <View style={GLOBAL_STYLES.rowBetween}>
           <View style={GLOBAL_STYLES.rowCenter}>
-            <Phone
-              color={COLORS.textMuted}
-              size={14}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={GLOBAL_STYLES.textBody}>
-              {item.phone || "Не указан"}
-            </Text>
+            <Phone color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+            <Text style={GLOBAL_STYLES.textBody}>{item.phone || "Не указан"}</Text>
           </View>
 
           <TouchableOpacity
             style={[styles.editRoleBtn, isOwner && { opacity: 0.5 }]}
             onPress={() => openRoleModal(item)}
-            disabled={isOwner} // Владельца понизить нельзя!
+            disabled={isOwner} 
             activeOpacity={0.7}
           >
             <Text style={styles.editRoleText}>Изменить права</Text>
@@ -211,7 +195,6 @@ export default function UsersScreen({ navigation }) {
     );
   };
 
-  // Карточка Реферала
   const renderReferralItem = ({ item }) => {
     return (
       <PeCard elevated={false} style={styles.userCard}>
@@ -221,18 +204,12 @@ export default function UsersScreen({ navigation }) {
               <Share2 color={COLORS.success} size={20} />
             </View>
             <View>
-              <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>
-                {item.first_name || "Без имени"}
-              </Text>
-              <Text style={GLOBAL_STYLES.textSmall}>
-                ID: {item.telegram_id} • Тел: {item.phone || "—"}
-              </Text>
+              <Text style={GLOBAL_STYLES.h3} numberOfLines={1}>{item.first_name || "Без имени"}</Text>
+              <Text style={GLOBAL_STYLES.textSmall}>ID: {item.telegram_id} • Тел: {item.phone || "—"}</Text>
             </View>
           </View>
         </View>
-
         <View style={styles.divider} />
-
         <View style={GLOBAL_STYLES.rowBetween}>
           <View>
             <Text style={GLOBAL_STYLES.textSmall}>Пригласил:</Text>
@@ -253,7 +230,6 @@ export default function UsersScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Используем View вместо SafeAreaView для избежания двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
       
       {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ РАССЫЛКИ */}
@@ -268,44 +244,39 @@ export default function UsersScreen({ navigation }) {
           </View>
         </View>
 
-        {/* 🔥 КНОПКА РАССЫЛКИ */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Broadcast")}
-          style={styles.broadcastBtn}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity onPress={() => navigation.navigate("Broadcast")} style={styles.broadcastBtn} activeOpacity={0.7}>
           <Radio color={COLORS.primary} size={28} />
         </TouchableOpacity>
       </View>
 
-      {/* 🎛 Вкладки переключения (Пользователи / Рефералы) */}
+      {/* 🎛 Вкладки переключения */}
       <View style={styles.tabsContainer}>
-        <TouchableOpacity 
-          style={[styles.tabBtn, activeTab === "users" && styles.tabBtnActive]} 
-          onPress={() => setActiveTab("users")}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={[styles.tabBtn, activeTab === "users" && styles.tabBtnActive]} onPress={() => setActiveTab("users")} activeOpacity={0.8}>
           <Text style={[styles.tabText, activeTab === "users" && styles.tabTextActive]}>Пользователи</Text>
         </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tabBtn, activeTab === "referrals" && styles.tabBtnActive]} 
-          onPress={() => setActiveTab("referrals")}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={[styles.tabBtn, activeTab === "referrals" && styles.tabBtnActive]} onPress={() => setActiveTab("referrals")} activeOpacity={0.8}>
           <Text style={[styles.tabText, activeTab === "referrals" && styles.tabTextActive]}>Рефералы</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 📜 СПИСОК (Адаптивный под вкладку) */}
+      {/* 🔍 ПАНЕЛЬ ПОИСКА */}
+      <View style={styles.searchContainer}>
+        <PeInput
+          placeholder="Поиск по ID, имени, телефону..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          icon={<Search color={COLORS.textMuted} size={18} />}
+          style={{ marginBottom: 0 }}
+        />
+      </View>
+
+      {/* 📜 СПИСОК */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => fetchData()}
-            style={{ marginTop: 10 }}
-          >
+          <TouchableOpacity onPress={() => fetchData()} style={{ marginTop: 10 }}>
             <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
@@ -315,28 +286,19 @@ export default function UsersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={activeTab === "users" ? users : referrals}
+          data={getFilteredData()} // 🔥 Используем отфильтрованные данные
           keyExtractor={(item) => item.telegram_id.toString()}
           renderItem={activeTab === "users" ? renderUserItem : renderReferralItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={COLORS.primary}
-              colors={[COLORS.primary]}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} colors={[COLORS.primary]} />
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              {activeTab === "users" ? (
-                <Users color={COLORS.surfaceHover} size={48} />
-              ) : (
-                <Share2 color={COLORS.surfaceHover} size={48} />
-              )}
-              <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium }]}>
-                {activeTab === "users" ? "База пользователей пуста" : "Никто еще никого не пригласил"}
+              {activeTab === "users" ? <Users color={COLORS.surfaceHover} size={48} /> : <Share2 color={COLORS.surfaceHover} size={48} />}
+              <Text style={[GLOBAL_STYLES.textMuted, { marginTop: SIZES.medium, textAlign: 'center' }]}>
+                {searchQuery ? "По вашему запросу ничего не найдено." : (activeTab === "users" ? "База пользователей пуста" : "Никто еще никого не пригласил")}
               </Text>
             </View>
           }
@@ -344,25 +306,15 @@ export default function UsersScreen({ navigation }) {
       )}
 
       {/* 🪟 МОДАЛЬНОЕ ОКНО СМЕНЫ РОЛИ */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
+      <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
                 <Text style={GLOBAL_STYLES.h2}>Уровень доступа</Text>
-                <Text style={GLOBAL_STYLES.textMuted}>
-                  Для: {selectedUser?.first_name}
-                </Text>
+                <Text style={GLOBAL_STYLES.textMuted}>Для: {selectedUser?.first_name}</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => setModalVisible(false)}
-                style={styles.closeBtn}
-              >
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
                 <X color={COLORS.textMuted} size={24} />
               </TouchableOpacity>
             </View>
@@ -374,21 +326,11 @@ export default function UsersScreen({ navigation }) {
                   key={roleOpt.id}
                   disabled={roleUpdating}
                   onPress={() => handleRoleChange(roleOpt.id)}
-                  style={[
-                    styles.roleOptionBtn,
-                    isActive && styles.roleOptionBtnActive,
-                  ]}
+                  style={[styles.roleOptionBtn, isActive && styles.roleOptionBtnActive]}
                   activeOpacity={0.7}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.roleOptionTitle,
-                        isActive && { color: COLORS.primary },
-                      ]}
-                    >
-                      {roleOpt.label}
-                    </Text>
+                    <Text style={[styles.roleOptionTitle, isActive && { color: COLORS.primary }]}>{roleOpt.label}</Text>
                     <Text style={GLOBAL_STYLES.textSmall}>{roleOpt.desc}</Text>
                   </View>
                   {isActive && <CheckCircle color={COLORS.primary} size={20} />}
@@ -396,13 +338,7 @@ export default function UsersScreen({ navigation }) {
               );
             })}
 
-            {roleUpdating && (
-              <ActivityIndicator
-                size="small"
-                color={COLORS.primary}
-                style={{ marginTop: SIZES.large }}
-              />
-            )}
+            {roleUpdating && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: SIZES.large }} />}
           </View>
         </View>
       </Modal>
@@ -421,26 +357,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.background, // 🔥 OLED Black
+    backgroundColor: COLORS.background, 
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     zIndex: 10,
   },
   broadcastBtn: {
     padding: 8,
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // 🔥 Electric Orange
+    backgroundColor: "rgba(255, 107, 0, 0.1)", 
     borderRadius: 10,
   },
   iconWrapper: {
     width: 44,
     height: 44,
     borderRadius: SIZES.radiusMd,
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // 🔥 Electric Orange
+    backgroundColor: "rgba(255, 107, 0, 0.1)", 
     justifyContent: "center",
     alignItems: "center",
     marginRight: SIZES.medium,
   },
-  
   tabsContainer: {
     flexDirection: 'row',
     paddingHorizontal: SIZES.large,
@@ -470,18 +405,22 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: COLORS.primary,
   },
-
+  searchContainer: {
+    paddingHorizontal: SIZES.large,
+    paddingVertical: SIZES.small,
+    backgroundColor: COLORS.background,
+  },
   listContent: {
     padding: SIZES.large,
-    paddingBottom: Platform.OS === "android" ? 100 : 40, // 🔥 Ваше исправление для Android Navigation Bar
+    paddingBottom: Platform.OS === "android" ? 100 : 40, 
   },
-
-  // Карточка юзера
   userCard: {
     padding: SIZES.medium,
     marginBottom: SIZES.medium,
     borderWidth: 1, 
     borderColor: COLORS.border,
+    backgroundColor: COLORS.surface, // Строгий OLED дизайн
+    borderRadius: SIZES.radiusMd,
   },
   avatar: {
     width: 40,
@@ -493,7 +432,7 @@ const styles = StyleSheet.create({
     marginRight: SIZES.small,
   },
   avatarStaff: {
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // 🔥 Electric Orange
+    backgroundColor: "rgba(255, 107, 0, 0.1)", 
   },
   roleBadge: {
     backgroundColor: COLORS.surfaceElevated,
@@ -502,7 +441,7 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusSm,
   },
   roleBadgeStaff: {
-    backgroundColor: "rgba(255, 107, 0, 0.15)", // 🔥 Electric Orange
+    backgroundColor: "rgba(255, 107, 0, 0.15)", 
   },
   roleBadgeText: {
     fontSize: 10,
@@ -528,11 +467,9 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSmall,
     fontWeight: "600",
   },
-
-  // Модалка
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)", // 🔥 Более плотное затемнение OLED
+    backgroundColor: "rgba(0,0,0,0.85)", 
     justifyContent: "flex-end",
   },
   modalContent: {
@@ -541,7 +478,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: SIZES.radiusLg,
     padding: SIZES.large,
     paddingBottom: Platform.OS === "ios" ? 40 : SIZES.large,
-    borderTopWidth: 1, // 🔥 Рамка модалки для контраста
+    borderTopWidth: 1, 
     borderTopColor: COLORS.border,
   },
   modalHeader: {
@@ -566,7 +503,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   roleOptionBtnActive: {
-    backgroundColor: "rgba(255, 107, 0, 0.05)", // 🔥 Оранжевый акцент выделения
+    backgroundColor: "rgba(255, 107, 0, 0.05)", 
     borderColor: COLORS.primary,
   },
   roleOptionTitle: {
@@ -575,8 +512,6 @@ const styles = StyleSheet.create({
     color: COLORS.textMain,
     marginBottom: 4,
   },
-
-  // Состояния
   centerContainer: {
     flex: 1,
     justifyContent: "center",

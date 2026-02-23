@@ -1,13 +1,12 @@
 /**
  * @file src/screens/OrderDetailScreen.js
- * @description Экран управления объектом (PROADMIN Mobile v12.5.2 Enterprise).
- * 🔥 ИСПРАВЛЕНО (v12.5.2): Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
- * 🔥 ИСПРАВЛЕНО (v12.5.1): Глобальный фикс клавиатуры при редактировании спецификации (BOM).
- * ДОБАВЛЕНО: Максимальная детализация объекта (режим калькулятора, тариф, статус Умного дома).
+ * @description Экран управления объектом (PROADMIN Mobile v12.7.0 Enterprise).
+ * 🔥 ДОБАВЛЕНО (v12.7.0): Возможность отмены заказа (Cancel) для Администраторов.
+ * ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * ИСПРАВЛЕНО: Глобальный фикс клавиатуры при редактировании спецификации (BOM).
  * НИКАКИХ УДАЛЕНИЙ: Весь функционал (BOM, Финансы, Метаданные) сохранен на 100%.
  *
  * @module OrderDetailScreen
- * @version 12.5.2 (Top Margin & Keyboard Fix Edition)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -72,7 +71,7 @@ export default function OrderDetailScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
 
   const [brigades, setBrigades] = useState([]);
-  const isDone = order.status === 'done' || order.status === 'archived';
+  const isDone = order.status === 'done' || order.status === 'archived' || order.status === 'cancel';
 
   const [address, setAddress] = useState(order.details?.address || "");
   const [adminComment, setAdminComment] = useState(order.details?.admin_comment || "");
@@ -178,6 +177,33 @@ export default function OrderDetailScreen({ route, navigation }) {
     );
   };
 
+  // 🔥 НОВАЯ ФУНКЦИЯ: ОТМЕНА ЗАКАЗА
+  const handleCancelOrder = async () => {
+    Alert.alert(
+      "Отмена заказа",
+      "Вы уверены, что хотите отменить этот заказ? Он будет переведен в статус 'Отказ'.",
+      [
+        { text: "Нет", style: "cancel" },
+        {
+          text: "Да, отменить",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await API.updateOrderStatus(order.id, 'cancel');
+              setOrder({ ...order, status: 'cancel' });
+              Alert.alert("Отменено", "Заказ успешно переведен в отказы.");
+            } catch (e) {
+              Alert.alert("Ошибка", e.message);
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleSaveMetadata = async () => {
     try {
       setLoading(true);
@@ -234,9 +260,7 @@ export default function OrderDetailScreen({ route, navigation }) {
   // =============================================================================
 
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Возвращаем View вместо SafeAreaView, чтобы убрать черную дыру сверху
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* ЖЕСТКИЙ ФИКС КЛАВИАТУРЫ ДЛЯ BOM */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "padding"}
@@ -255,8 +279,6 @@ export default function OrderDetailScreen({ route, navigation }) {
 
         <ScrollView
           style={{ flex: 1 }}
-          // Огромный отступ снизу, чтобы при открытой клавиатуре 
-          // можно было прокрутить до кнопки "Сохранить BOM"
           contentContainerStyle={[styles.scrollContent, { paddingBottom: 300 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -265,7 +287,7 @@ export default function OrderDetailScreen({ route, navigation }) {
           {isDone && (
             <View style={styles.alertDanger}>
               <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: SIZES.fontSmall }}>
-                🔒 Заказ ЗАВЕРШЕН/АРХИВ. Изменения заблокированы.
+                🔒 Заказ в статусе: {order.status.toUpperCase()}. Изменения заблокированы.
               </Text>
             </View>
           )}
@@ -328,7 +350,7 @@ export default function OrderDetailScreen({ route, navigation }) {
             )}
           </PeCard>
 
-          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ (ГИБРИДНЫЙ КАЛЬКУЛЯТОР) */}
+          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ */}
           {area > 0 && (
             <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
               <Text style={styles.sectionTitle}>Технические данные</Text>
@@ -380,7 +402,7 @@ export default function OrderDetailScreen({ route, navigation }) {
             </PeCard>
           )}
 
-          {/* СИСТЕМНЫЕ ДЕЙСТВИЯ */}
+          {/* 🔥 СИСТЕМНЫЕ ДЕЙСТВИЯ */}
           {!isDone && (
             <View style={{ marginBottom: SIZES.medium }}>
               {isManager && order.status === 'new' && (
@@ -399,6 +421,18 @@ export default function OrderDetailScreen({ route, navigation }) {
                   variant="success"
                   icon={<CheckCircle color="#000" size={20} />}
                   onPress={handleFinalizeOrder}
+                  loading={loading}
+                  style={{ marginBottom: SIZES.base }}
+                />
+              )}
+              
+              {/* Кнопка отмены для Админа */}
+              {isAdmin && (
+                <PeButton
+                  title="ОТМЕНИТЬ ЗАКАЗ (В ОТКАЗ)"
+                  variant="danger"
+                  icon={<X color="#fff" size={20} />}
+                  onPress={handleCancelOrder}
                   loading={loading}
                 />
               )}
@@ -520,11 +554,7 @@ export default function OrderDetailScreen({ route, navigation }) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ========================================================================= */}
-      {/* 🔮 МОДАЛЬНЫЕ ОКНА (ЖЕСТКИЙ ФИКС КЛАВИАТУРЫ ДЛЯ ANDROID И IOS) */}
-      {/* ========================================================================= */}
-
-      {/* 1. Модалка: ИЗМЕНЕНИЕ ИТОГОВОЙ ЦЕНЫ */}
+      {/* 🔮 МОДАЛЬНЫЕ ОКНА */}
       <Modal visible={priceModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -546,7 +576,6 @@ export default function OrderDetailScreen({ route, navigation }) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* 2. Модалка: ДОБАВЛЕНИЕ ЧЕКА (РАСХОДА) */}
       <Modal visible={expenseModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -577,7 +606,6 @@ export default function OrderDetailScreen({ route, navigation }) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* 3. Модалка: НАЗНАЧЕНИЕ БРИГАДЫ (ТОЛЬКО ДЛЯ АДМИНА) */}
       <Modal visible={assignModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -621,14 +649,10 @@ export default function OrderDetailScreen({ route, navigation }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
     </View>
   );
 }
 
-// =============================================================================
-// 🎨 СТИЛИ
-// =============================================================================
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
