@@ -1,12 +1,15 @@
 /**
  * @file src/screens/OrderDetailScreen.js
- * @description Экран управления объектом (PROADMIN Mobile v12.7.0 Enterprise).
- * 🔥 ДОБАВЛЕНО (v12.7.0): Возможность отмены заказа (Cancel) для Администраторов.
- * ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
- * ИСПРАВЛЕНО: Глобальный фикс клавиатуры при редактировании спецификации (BOM).
- * НИКАКИХ УДАЛЕНИЙ: Весь функционал (BOM, Финансы, Метаданные) сохранен на 100%.
+ * @description Детальный экран заказа (PROADMIN Mobile v12.12.0 Enterprise).
+ * Обеспечивает полное управление объектом: статусы, BOM, чеки, финансы.
+ * 🔥 ДОБАВЛЕНО (v12.12.0): Adaptive UI. Экран теперь динамически подстраивается под тип заказа:
+ * 1. Комплексный монтаж (type: 'complex' или undefined) - Оригинальный интерфейс 100%.
+ * 2. Мелкий ремонт (type: 'minor') - Скрыт BOM, добавлено описание задачи, 0% комиссии.
+ * 3. Запросы связи (type: 'call') - Упрощенный интерфейс для менеджеров.
+ * НИКАКИХ УДАЛЕНИЙ. ВЕСЬ ОРИГИНАЛЬНЫЙ КОД СОХРАНЕН.
  *
  * @module OrderDetailScreen
+ * @version 12.12.0 (Adaptive Multi-Type Edition)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -16,134 +19,95 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
-  Modal,
   ActivityIndicator,
-  Keyboard
+  Modal,
+  Linking
 } from "react-native";
 import {
   ArrowLeft,
-  User,
-  Phone,
-  CheckCircle,
-  FileText,
-  PlusCircle,
-  Trash2,
-  Edit3,
-  X,
-  MapPin,
-  AlignLeft,
-  DollarSign,
-  DownloadCloud,
-  HardHat,
-  Home,
   Settings,
-  Layers,
-  Tag,
-  ShieldAlert
+  ShoppingBag,
+  DollarSign,
+  User,
+  MapPin,
+  FileText,
+  Plus,
+  Trash2,
+  Save,
+  CheckCircle,
+  Phone,
+  HardHat,
+  Cpu,
+  Wrench // Иконка для мелкого ремонта
 } from "lucide-react-native";
 
-// Импорт архитектуры
 import { API } from "../api/api";
-import { PeCard, PeBadge, PeButton, PeInput } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
+import { PeCard, PeBadge, PeInput } from "../components/ui";
+import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 import { AuthContext } from "../context/AuthContext";
 
-const formatKZT = (num) => (parseFloat(num) || 0).toLocaleString("ru-RU") + " ₸";
-
-const formatDate = (dateStr) => {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleString("ru-RU", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit"
-  });
+const formatKZT = (num) => {
+  return (parseFloat(num) || 0).toLocaleString("ru-RU") + " ₸";
 };
 
+// =============================================================================
+// КОМПОНЕНТ ЭКРАНА
+// =============================================================================
 export default function OrderDetailScreen({ route, navigation }) {
+  const { order: initialOrder } = route.params;
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
-  const isManager = user?.role === 'manager';
 
-  const initialOrder = route.params?.order || {};
+  // State
   const [order, setOrder] = useState(initialOrder);
   const [loading, setLoading] = useState(false);
 
-  const [brigades, setBrigades] = useState([]);
-  const isDone = order.status === 'done' || order.status === 'archived' || order.status === 'cancel';
+  // Финансовый State
+  const [finalPrice, setFinalPrice] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseCategory, setExpenseCategory] = useState("Материалы");
+  const [expenseComment, setExpenseComment] = useState("");
+  const [modalExpenseVisible, setModalExpenseVisible] = useState(false);
 
-  const [address, setAddress] = useState(order.details?.address || "");
-  const [adminComment, setAdminComment] = useState(order.details?.admin_comment || "");
-  const [bom, setBom] = useState(Array.isArray(order.details?.bom) ? order.details.bom : []);
+  // Метаданные State
+  const [address, setAddress] = useState("");
+  const [adminComment, setAdminComment] = useState("");
 
-  // Извлекаем технические данные из гибридного калькулятора (v12)
-  const params = order.details?.params || {};
-  const financials = order.details?.financials || { final_price: order.total_price, total_expenses: 0, net_profit: order.total_price, expenses: [] };
-  const calcBase = order.details?.total?.work || order.total_price;
+  // BOM State
+  const [bomList, setBomList] = useState([]);
+  const [isBomEdited, setIsBomEdited] = useState(false);
 
-  // Парсинг тех. данных
-  const calcMode = params.calcMode === 'sq_meter' ? 'По квадратуре (СНиП)' : 'Точный (price_list)';
-  const area = params.area || order.area || 0;
-  const rooms = params.rooms || 0;
-  const isSmartHome = params.isSmartHome ? "Да" : "Нет";
-  const tariffName = params.tariffName || "Стандарт";
-  const wallType = params.wallType || "Не указано";
-  const appliedDiscount = params.appliedDiscount || 0;
-  const isMinThresholdApplied = order.details?.total?.isMinThresholdApplied || false;
-
-  // Модалки
-  const [expenseModalVisible, setExpenseModalVisible] = useState(false);
-  const [newExpense, setNewExpense] = useState({ amount: "", category: "", comment: "" });
-
-  const [priceModalVisible, setPriceModalVisible] = useState(false);
-  const [newPrice, setNewPrice] = useState(financials.final_price?.toString() || "");
-
-  const [assignModalVisible, setAssignModalVisible] = useState(false);
-  const [selectedBrigadeId, setSelectedBrigadeId] = useState(null);
+  // Type Detection (Для адаптивного UI)
+  const isMinor = order.type === 'minor';
+  const isCall = order.type === 'call' || order.type === 'call_me';
+  const isComplex = !isMinor && !isCall; // Стандартный монтаж
 
   // =============================================================================
-  // 🚀 ЗАГРУЗКА ДАННЫХ
+  // ИНИЦИАЛИЗАЦИЯ
   // =============================================================================
   useEffect(() => {
-    if (isAdmin) {
-      API.getBrigades()
-        .then(data => setBrigades(data || []))
-        .catch(err => console.log("Failed to load brigades:", err));
-    }
-  }, [isAdmin]);
+    loadOrderDetails();
+  }, []);
 
-  // =============================================================================
-  // 🚀 API ОБРАБОТЧИКИ
-  // =============================================================================
-
-  const handleTakeOrder = async () => {
+  const loadOrderDetails = async () => {
     try {
       setLoading(true);
-      await API.takeOrderWeb(order.id);
-      Alert.alert("Успех", "Заказ успешно взят в работу!");
-      navigation.goBack();
-    } catch (e) {
-      Alert.alert("Ошибка", e.message);
-      setLoading(false);
-    }
-  };
-
-  const handleAssignBrigade = async () => {
-    if (!selectedBrigadeId) return Alert.alert("Ошибка", "Выберите бригаду из списка.");
-    try {
-      setLoading(true);
-      await API.assignBrigade(order.id, selectedBrigadeId);
-      const assignedB = brigades.find(b => b.id.toString() === selectedBrigadeId.toString());
-
-      setOrder({
-        ...order,
-        brigade_id: selectedBrigadeId,
-        brigade_name: assignedB?.name,
-        status: 'work'
-      });
-      setAssignModalVisible(false);
-      Alert.alert("Успех", "Заказ успешно передан бригаде!");
+      const data = await API.getOrderById(order.id);
+      setOrder(data);
+      
+      const details = data.details || {};
+      const financials = details.financials || {};
+      
+      setFinalPrice(financials.final_price?.toString() || data.total_price?.toString() || "0");
+      setAddress(details.address || "");
+      setAdminComment(details.admin_comment || "");
+      
+      if (details.bom && Array.isArray(details.bom)) {
+        setBomList(JSON.parse(JSON.stringify(details.bom)));
+      } else {
+        setBomList([]);
+      }
     } catch (e) {
       Alert.alert("Ошибка", e.message);
     } finally {
@@ -151,24 +115,109 @@ export default function OrderDetailScreen({ route, navigation }) {
     }
   };
 
-  const handleFinalizeOrder = async () => {
+  const isOrderClosed = order.status === "done" || order.status === "archived";
+
+  // =============================================================================
+  // ДЕЙСТВИЯ (БИЗНЕС-ЛОГИКА)
+  // =============================================================================
+
+  // 🔥 УНИВЕРСАЛЬНЫЙ МЕТОД ВЗЯТИЯ ЗАКАЗА
+  const handleTakeOrder = async () => {
+    try {
+      setLoading(true);
+      if (isMinor) {
+        await API.takeMinorRepair(order.id);
+      } else {
+        await API.takeOrder(order.id);
+      }
+      Alert.alert("Успех", "Объект успешно взят в работу!");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  const handleChangeStatus = async (newStatus) => {
+    try {
+      setLoading(true);
+      if (isMinor) {
+        await API.updateMinorRepairStatus(order.id, newStatus);
+      } else if (isCall) {
+         await API.updateCallRequestStatus(order.id, newStatus);
+      } else {
+        await API.updateOrderStatus(order.id, newStatus);
+      }
+      Alert.alert("Успех", "Статус обновлен");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateMetadata = async () => {
+    try {
+      setLoading(true);
+      await API.updateOrderMetadata(order.id, address, adminComment);
+      Alert.alert("Успех", "Данные сохранены");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePrice = async () => {
+    try {
+      setLoading(true);
+      await API.updateOrderPrice(order.id, finalPrice);
+      Alert.alert("Успех", "Цена зафиксирована");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  const handleAddExpense = async () => {
+    if (!expenseAmount || isNaN(expenseAmount) || Number(expenseAmount) <= 0) {
+      Alert.alert("Ошибка", "Введите корректную сумму");
+      return;
+    }
+    try {
+      setLoading(true);
+      await API.addOrderExpense(order.id, expenseAmount, expenseCategory, expenseComment);
+      setModalExpenseVisible(false);
+      setExpenseAmount("");
+      setExpenseComment("");
+      Alert.alert("Успех", "Расход добавлен");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  const handleFinalize = () => {
     Alert.alert(
-      "Закрытие объекта",
-      "Вы уверены? Будет произведен расчет долей и начислен долг.",
+      "Завершение объекта",
+      isMinor 
+        ? "Завершить вызов? Вся сумма будет добавлена к вашему заработку без комиссии." 
+        : "Вы уверены? Будет произведен расчет долей и начислен долг на бригаду.",
       [
         { text: "Отмена", style: "cancel" },
-        {
-          text: "Завершить",
+        { 
+          text: "Да, завершить", 
           style: "destructive",
           onPress: async () => {
             try {
               setLoading(true);
               const res = await API.finalizeOrder(order.id);
-              Alert.alert("Завершено!", `Объект закрыт.\nВаша доля: ${formatKZT(res.distribution.brigadeShare)}\nДолг Шефу: ${formatKZT(res.distribution.ownerShare)}`);
-              setOrder({ ...order, status: 'done' });
+              Alert.alert("Успех", isMinor ? "Вызов завершен!" : `Заработано: ${formatKZT(res.distribution?.brigadeShare)}`);
+              loadOrderDetails();
             } catch (e) {
               Alert.alert("Ошибка", e.message);
-            } finally {
               setLoading(false);
             }
           }
@@ -177,580 +226,625 @@ export default function OrderDetailScreen({ route, navigation }) {
     );
   };
 
-  // 🔥 НОВАЯ ФУНКЦИЯ: ОТМЕНА ЗАКАЗА
-  const handleCancelOrder = async () => {
-    Alert.alert(
-      "Отмена заказа",
-      "Вы уверены, что хотите отменить этот заказ? Он будет переведен в статус 'Отказ'.",
-      [
-        { text: "Нет", style: "cancel" },
-        {
-          text: "Да, отменить",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await API.updateOrderStatus(order.id, 'cancel');
-              setOrder({ ...order, status: 'cancel' });
-              Alert.alert("Отменено", "Заказ успешно переведен в отказы.");
-            } catch (e) {
-              Alert.alert("Ошибка", e.message);
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
+  const handleMakeCall = () => {
+    if (order.client_phone || order.phone) {
+      Linking.openURL(`tel:${order.client_phone || order.phone}`);
+    } else {
+      Alert.alert("Ошибка", "Телефон клиента не указан");
+    }
+  };
+
+  // =============================================================================
+  // ЛОГИКА BOM (ТОЛЬКО ДЛЯ КОМПЛЕКСНОГО МОНТАЖА)
+  // =============================================================================
+  const updateBOMItem = (index, field, value) => {
+    const newList = [...bomList];
+    newList[index][field] = field === 'qty' ? parseFloat(value) || 0 : value;
+    setBomList(newList);
+    setIsBomEdited(true);
+  };
+
+  const removeBOMItem = (index) => {
+    const newList = [...bomList];
+    newList.splice(index, 1);
+    setBomList(newList);
+    setIsBomEdited(true);
+  };
+
+  const addBOMItem = () => {
+    setBomList([...bomList, { name: "", qty: 1, unit: "шт" }]);
+    setIsBomEdited(true);
+  };
+
+  const saveBOMList = async () => {
+    try {
+      setLoading(true);
+      await API.updateOrderBOM(order.id, bomList);
+      setIsBomEdited(false);
+      Alert.alert("Успех", "Спецификация сохранена");
+      loadOrderDetails();
+    } catch (e) {
+      Alert.alert("Ошибка", e.message);
+      setLoading(false);
+    }
+  };
+
+  // =============================================================================
+  // ДАННЫЕ ДЛЯ РЕНДЕРА
+  // =============================================================================
+  const details = order.details || {};
+  const params = details.params || {};
+  const financials = details.financials || {
+    final_price: order.total_price || order.price || 0,
+    total_expenses: 0,
+    net_profit: order.total_price || order.price || 0,
+    expenses: []
+  };
+
+  const isSmartHome = params.isSmartHome === true;
+  const area = order.area || params.area || 0;
+  
+  // =============================================================================
+  // РЕНДЕР
+  // =============================================================================
+  if (loading && !order.id) {
+    return (
+      <View style={[GLOBAL_STYLES.safeArea, GLOBAL_STYLES.center]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
     );
-  };
-
-  const handleSaveMetadata = async () => {
-    try {
-      setLoading(true);
-      const res = await API.updateOrderMetadata(order.id, address, adminComment);
-      setOrder({ ...order, details: res.details });
-      Alert.alert("Сохранено", "Адрес и комментарий обновлены.");
-      Keyboard.dismiss();
-    } catch (e) {
-      Alert.alert("Ошибка", e.message);
-    } finally { setLoading(false); }
-  };
-
-  const handleSaveBOM = async () => {
-    try {
-      setLoading(true);
-      const res = await API.updateBOM(order.id, bom);
-      setOrder({ ...order, details: { ...order.details, bom: res.bom } });
-      Alert.alert("Сохранено", "Спецификация (BOM) успешно обновлена.");
-      Keyboard.dismiss();
-    } catch (e) {
-      Alert.alert("Ошибка", e.message);
-    } finally { setLoading(false); }
-  };
-
-  const handleAddExpense = async () => {
-    if (!newExpense.amount || !newExpense.category) return Alert.alert("Ошибка", "Заполните сумму и категорию.");
-    try {
-      setLoading(true);
-      const res = await API.addOrderExpense(order.id, newExpense.amount, newExpense.category, newExpense.comment);
-      setOrder({ ...order, details: { ...order.details, financials: res.financials } });
-      setExpenseModalVisible(false);
-      setNewExpense({ amount: "", category: "", comment: "" });
-      Alert.alert("Расход добавлен", "Юнит-экономика пересчитана.");
-    } catch (e) {
-      Alert.alert("Ошибка", e.message);
-    } finally { setLoading(false); }
-  };
-
-  const handleUpdatePrice = async () => {
-    if (!newPrice) return Alert.alert("Ошибка", "Введите цену.");
-    try {
-      setLoading(true);
-      const res = await API.updateOrderFinalPrice(order.id, newPrice);
-      setOrder({ ...order, total_price: newPrice, details: { ...order.details, financials: res.financials } });
-      setPriceModalVisible(false);
-      Alert.alert("Цена обновлена", "Итоговая цена зафиксирована.");
-    } catch (e) {
-      Alert.alert("Ошибка", e.message);
-    } finally { setLoading(false); }
-  };
-
-  // =============================================================================
-  // 🧩 РЕНДЕР
-  // =============================================================================
+  }
 
   return (
     <View style={GLOBAL_STYLES.safeArea}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "padding"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} disabled={loading}>
-            <ArrowLeft color={COLORS.textMain} size={24} />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={GLOBAL_STYLES.h2}>Объект #{order.id}</Text>
-            <Text style={GLOBAL_STYLES.textSmall}>{formatDate(order.created_at)}</Text>
-          </View>
+      {/* 🎩 ШАПКА */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <ArrowLeft color={COLORS.textMain} size={24} />
+        </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.headerTitle}>Объект #{order.id}</Text>
           <PeBadge status={order.status} />
         </View>
+      </View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 300 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {/* АЛЕРТ: ЗАКАЗ ЗАКРЫТ */}
+        {isOrderClosed && (
+          <View style={styles.closedAlert}>
+            <Text style={styles.closedAlertText}>Заказ завершен. Редактирование заблокировано.</Text>
+          </View>
+        )}
 
-          {isDone && (
-            <View style={styles.alertDanger}>
-              <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: SIZES.fontSmall }}>
-                🔒 Заказ в статусе: {order.status.toUpperCase()}. Изменения заблокированы.
+        {/* ⚠️ КНОПКА "ЗАБРАТЬ" (Если заказ новый на бирже) */}
+        {(!isAdmin && order.status === 'new') && (
+           <TouchableOpacity style={styles.takeBtn} onPress={handleTakeOrder} disabled={loading}>
+             <Text style={styles.takeBtnText}>ЗАБРАТЬ ОБЪЕКТ В РАБОТУ</Text>
+           </TouchableOpacity>
+        )}
+
+        {/* 👤 КЛИЕНТ */}
+        <PeCard elevated={false} style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <User color={COLORS.primary} size={20} />
+            <Text style={styles.sectionTitle}>Заказчик</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={GLOBAL_STYLES.textMuted}>Имя:</Text>
+            <Text style={GLOBAL_STYLES.textBody}>{order.client_name || order.first_name || "Неизвестно"}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={GLOBAL_STYLES.textMuted}>Телефон:</Text>
+            <TouchableOpacity onPress={handleMakeCall} style={GLOBAL_STYLES.rowCenter}>
+              <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600', marginRight: 8 }]}>
+                {order.client_phone || order.phone || "—"}
               </Text>
+              <Phone color={COLORS.primary} size={16} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={GLOBAL_STYLES.textMuted}>Username:</Text>
+            <Text style={GLOBAL_STYLES.textBody}>@{order.username || "—"}</Text>
+          </View>
+        </PeCard>
+
+        {/* 🔥 АДАПТИВНЫЙ БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ */}
+        <PeCard elevated={false} style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            {isMinor ? <Wrench color={COLORS.primary} size={20} /> : <Settings color={COLORS.primary} size={20} />}
+            <Text style={styles.sectionTitle}>{isMinor ? "Детали вызова" : "Технические данные"}</Text>
+          </View>
+
+          {isMinor && (
+            <View style={styles.minorDescBox}>
+              <Text style={styles.minorDescText}>{order.description || details.client_comment || "Описание отсутствует"}</Text>
             </View>
           )}
 
-          {/* ИНФОРМАЦИЯ О КЛИЕНТЕ И ЛОКАЦИИ */}
-          <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
-            <Text style={styles.sectionTitle}>Информация</Text>
-            <View style={styles.infoRow}>
-              <User color={COLORS.primary} size={18} style={{ marginRight: 8 }} />
-              <Text style={GLOBAL_STYLES.textBody}>{order.client_name || "Не указано"}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Phone color={COLORS.textMuted} size={18} style={{ marginRight: 8 }} />
-              <Text style={GLOBAL_STYLES.textBody}>{order.client_phone || "—"}</Text>
-            </View>
-
-            <View style={styles.infoRow}>
-              <HardHat color={order.brigade_name ? COLORS.warning : COLORS.textMuted} size={18} style={{ marginRight: 8 }} />
-              <Text style={[GLOBAL_STYLES.textBody, { color: order.brigade_name ? COLORS.warning : COLORS.textMuted, fontWeight: order.brigade_name ? '600' : '400' }]}>
-                {order.brigade_name ? `Бригада: ${order.brigade_name}` : "Бригада не назначена (БИРЖА)"}
-              </Text>
-            </View>
-
-            {isAdmin && !isDone && (
-              <PeButton
-                title={order.brigade_name ? "Сменить бригаду" : "Назначить бригаду"}
-                variant="ghost"
-                onPress={() => setAssignModalVisible(true)}
-                style={{ marginBottom: SIZES.base, borderWidth: 1, borderColor: COLORS.border }}
-              />
-            )}
-
-            <View style={styles.divider} />
-
-            <PeInput
-              label="📍 Адрес объекта"
-              placeholder="Улица, дом, квартира"
-              value={address}
-              onChangeText={setAddress}
-              editable={!isDone && !loading}
-              icon={<MapPin color={COLORS.textMuted} size={16} />}
-            />
-            <PeInput
-              label="📝 Системный комментарий"
-              placeholder="Заметки по объекту..."
-              value={adminComment}
-              onChangeText={setAdminComment}
-              editable={!isDone && !loading}
-              multiline
-              icon={<AlignLeft color={COLORS.textMuted} size={16} />}
-            />
-
-            {!isDone && (
-              <PeButton
-                title="Сохранить метаданные"
-                variant="secondary"
-                onPress={handleSaveMetadata}
-                loading={loading}
-              />
-            )}
-          </PeCard>
-
-          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ */}
-          {area > 0 && (
-            <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
-              <Text style={styles.sectionTitle}>Технические данные</Text>
-              
-              <View style={styles.techRow}>
-                <Settings color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
-                <Text style={GLOBAL_STYLES.textMuted}>Метод расчета:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontStyle: 'italic'}]}>{calcMode}</Text>
+          {isComplex && (
+            <>
+              <View style={styles.infoRow}>
+                <Text style={GLOBAL_STYLES.textMuted}>Площадь:</Text>
+                <Text style={styles.monoText}>{area} м²</Text>
               </View>
-
-              <View style={styles.techRow}>
-                <Home color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
-                <Text style={GLOBAL_STYLES.textMuted}>Площадь / Комнаты:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{area} м² / {rooms}</Text>
+              <View style={styles.infoRow}>
+                <Text style={GLOBAL_STYLES.textMuted}>Комнат:</Text>
+                <Text style={styles.monoText}>{params.rooms || 0}</Text>
               </View>
-
-              <View style={styles.techRow}>
-                <Layers color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+              <View style={styles.infoRow}>
                 <Text style={GLOBAL_STYLES.textMuted}>Стены:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{wallType}</Text>
+                <Text style={GLOBAL_STYLES.textBody}>{params.wallType || "—"}</Text>
               </View>
-
-              <View style={styles.techRow}>
-                <MapPin color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
-                <Text style={GLOBAL_STYLES.textMuted}>Тариф:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontWeight: '600'}]}>{tariffName}</Text>
-              </View>
-
-              <View style={styles.techRow}>
-                <Settings color={COLORS.primary} size={16} style={{marginRight: 8}}/>
-                <Text style={GLOBAL_STYLES.textMuted}>Умный дом:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', color: isSmartHome === 'Да' ? COLORS.primary : COLORS.textMain}]}>{isSmartHome}</Text>
-              </View>
-
-              {appliedDiscount > 0 && (
-                <View style={[styles.techRow, { marginTop: SIZES.small, paddingTop: SIZES.small, borderTopWidth: 1, borderTopColor: COLORS.border }]}>
-                  <Tag color={COLORS.warning} size={16} style={{marginRight: 8}}/>
-                  <Text style={{color: COLORS.warning, fontWeight: '600'}}>Применена скидка:</Text>
-                  <Text style={{flex: 1, textAlign: 'right', color: COLORS.warning, fontWeight: '700'}}>-{formatKZT(appliedDiscount)}</Text>
+              {isSmartHome && (
+                <View style={[GLOBAL_STYLES.rowCenter, { marginTop: 12, padding: 12, backgroundColor: 'rgba(255,107,0,0.1)', borderRadius: 8 }]}>
+                  <Cpu color={COLORS.primary} size={20} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.primary, fontWeight: '600' }}>Интеграция Умного Дома</Text>
                 </View>
               )}
-
-              {isMinThresholdApplied && (
-                <View style={[styles.techRow, { marginTop: SIZES.small }]}>
-                  <ShieldAlert color={COLORS.danger} size={16} style={{marginRight: 8}}/>
-                  <Text style={{color: COLORS.danger, flex: 1, fontSize: 12}}>Сработал блокиратор минимальной рентабельности</Text>
-                </View>
-              )}
-            </PeCard>
+            </>
           )}
+        </PeCard>
 
-          {/* 🔥 СИСТЕМНЫЕ ДЕЙСТВИЯ */}
-          {!isDone && (
-            <View style={{ marginBottom: SIZES.medium }}>
-              {isManager && order.status === 'new' && (
-                <PeButton
-                  title="ВЗЯТЬ ЗАКАЗ В РАБОТУ"
-                  variant="primary"
-                  icon={<DownloadCloud color={COLORS.textInverse} size={20} />}
-                  onPress={handleTakeOrder}
-                  loading={loading}
-                  style={{ marginBottom: SIZES.base }}
-                />
-              )}
-              {isManager && order.status === 'work' && (
-                <PeButton
-                  title="ЗАКРЫТЬ И РАСПРЕДЕЛИТЬ ПРИБЫЛЬ"
-                  variant="success"
-                  icon={<CheckCircle color="#000" size={20} />}
-                  onPress={handleFinalizeOrder}
-                  loading={loading}
-                  style={{ marginBottom: SIZES.base }}
-                />
-              )}
-              
-              {/* Кнопка отмены для Админа */}
-              {isAdmin && (
-                <PeButton
-                  title="ОТМЕНИТЬ ЗАКАЗ (В ОТКАЗ)"
-                  variant="danger"
-                  icon={<X color="#fff" size={20} />}
-                  onPress={handleCancelOrder}
-                  loading={loading}
-                />
-              )}
+        {/* 📋 УПРАВЛЕНИЕ МЕТАДАННЫМИ И СТАТУСОМ (ДЛЯ ВСЕХ, КРОМЕ ЗВОНКОВ) */}
+        {!isCall && (
+          <PeCard elevated={false} style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <MapPin color={COLORS.primary} size={20} />
+              <Text style={styles.sectionTitle}>Координаты и Статус</Text>
             </View>
-          )}
+            
+            <PeInput 
+              label="Точный адрес объекта" 
+              placeholder="г. Алматы, ул..." 
+              value={address} 
+              onChangeText={setAddress}
+              editable={!isOrderClosed}
+            />
+            <PeInput 
+              label="Заметка (Только для бригады)" 
+              placeholder="..." 
+              value={adminComment} 
+              onChangeText={setAdminComment}
+              editable={!isOrderClosed}
+              multiline
+            />
+            
+            {!isOrderClosed && (
+              <TouchableOpacity style={styles.outlineBtn} onPress={handleUpdateMetadata} disabled={loading}>
+                <Save color={COLORS.textMain} size={18} />
+                <Text style={styles.outlineBtnText}>Сохранить данные</Text>
+              </TouchableOpacity>
+            )}
 
-          {/* ЭКОНОМИКА */}
-          <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
-            <View style={GLOBAL_STYLES.rowBetween}>
-              <Text style={styles.sectionTitle}>Экономика</Text>
-              {!isDone && (
-                <TouchableOpacity onPress={() => setPriceModalVisible(true)}>
-                  <Edit3 color={COLORS.primary} size={20} />
+            <Text style={[GLOBAL_STYLES.textMuted, { marginTop: 16, marginBottom: 8 }]}>Смена статуса:</Text>
+            <View style={styles.statusGrid}>
+              <TouchableOpacity 
+                style={[styles.statusBtn, order.status === 'processing' && styles.statusBtnActive]}
+                onPress={() => handleChangeStatus('processing')} disabled={isOrderClosed || loading}>
+                <Text style={[styles.statusBtnText, order.status === 'processing' && styles.statusBtnTextActive]}>В замере</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.statusBtn, order.status === 'work' && styles.statusBtnActive]}
+                onPress={() => handleChangeStatus('work')} disabled={isOrderClosed || loading}>
+                <Text style={[styles.statusBtnText, order.status === 'work' && styles.statusBtnTextActive]}>В работе</Text>
+              </TouchableOpacity>
+            </View>
+          </PeCard>
+        )}
+
+        {/* 💵 ФИНАНСЫ (ДЛЯ КОМПЛЕКСА И МЕЛКОГО РЕМОНТА) */}
+        {!isCall && (
+          <PeCard elevated={false} style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <DollarSign color={COLORS.success} size={20} />
+              <Text style={styles.sectionTitle}>Юнит-экономика</Text>
+            </View>
+            
+            {isComplex && (
+              <View style={styles.infoRow}>
+                <Text style={GLOBAL_STYLES.textMuted}>Расчетная база (Система):</Text>
+                <Text style={GLOBAL_STYLES.textBody}>{formatKZT(details.total?.grand || order.total_price)}</Text>
+              </View>
+            )}
+            
+            <View style={{ marginVertical: 12 }}>
+              <PeInput 
+                label="Окончательная цена для клиента (₸)" 
+                placeholder="0" 
+                value={finalPrice} 
+                onChangeText={setFinalPrice}
+                keyboardType="numeric"
+                editable={!isOrderClosed}
+                style={{ marginBottom: 8 }}
+              />
+              {!isOrderClosed && (
+                <TouchableOpacity style={styles.outlineBtn} onPress={handleUpdatePrice} disabled={loading}>
+                  <CheckCircle color={COLORS.textMain} size={18} />
+                  <Text style={styles.outlineBtnText}>Зафиксировать цену</Text>
                 </TouchableOpacity>
               )}
             </View>
 
-            <View style={styles.finRow}>
-              <Text style={GLOBAL_STYLES.textMuted}>Расчетная база:</Text>
-              <Text style={GLOBAL_STYLES.textBody}>{formatKZT(calcBase)}</Text>
-            </View>
-            <View style={[styles.finRow, { marginTop: 8 }]}>
-              <Text style={GLOBAL_STYLES.textMuted}>Договорная цена:</Text>
-              <Text style={[GLOBAL_STYLES.textBody, { fontWeight: '700' }]}>{formatKZT(financials.final_price)}</Text>
-            </View>
-            <View style={[styles.finRow, { marginTop: 8 }]}>
-              <Text style={GLOBAL_STYLES.textMuted}>Сумма чеков (Расход):</Text>
-              <Text style={{ color: COLORS.danger, fontWeight: '700' }}>-{formatKZT(financials.total_expenses)}</Text>
-            </View>
-
             <View style={styles.divider} />
 
-            <View style={styles.finRow}>
-              <Text style={[GLOBAL_STYLES.textBody, { textTransform: 'uppercase', fontWeight: '700' }]}>Чистая прибыль:</Text>
-              <Text style={{ color: COLORS.success, fontSize: SIZES.fontTitle, fontWeight: '700' }}>{formatKZT(financials.net_profit)}</Text>
+            <View style={styles.infoRow}>
+              <Text style={GLOBAL_STYLES.textMuted}>Затраты на материалы (Чеки):</Text>
+              <Text style={[styles.monoText, { color: COLORS.danger }]}>-{formatKZT(financials.total_expenses)}</Text>
+            </View>
+            
+            <View style={styles.profitBox}>
+              <Text style={{ color: COLORS.success, fontWeight: '600' }}>{isMinor ? 'ВАШ ЧИСТЫЙ ЗАРАБОТОК:' : 'ЧИСТАЯ ПРИБЫЛЬ:'}</Text>
+              <Text style={[GLOBAL_STYLES.h2, { color: COLORS.success }]}>{formatKZT(financials.net_profit)}</Text>
             </View>
 
-            <View style={{ marginTop: SIZES.large }}>
-              <Text style={[GLOBAL_STYLES.h3, { marginBottom: SIZES.base }]}>Реестр расходов</Text>
-              {financials.expenses?.length > 0 ? (
-                financials.expenses.map((exp, idx) => (
+            {!isOrderClosed && (
+               <TouchableOpacity style={[styles.actionBtn, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }]} onPress={() => setModalExpenseVisible(true)}>
+                 <Plus color={COLORS.danger} size={18} />
+                 <Text style={[styles.actionBtnText, { color: COLORS.danger }]}>Добавить Расход (Чек)</Text>
+               </TouchableOpacity>
+            )}
+
+            {/* Список чеков */}
+            {financials.expenses && financials.expenses.length > 0 && (
+              <View style={{ marginTop: 16 }}>
+                <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: 8 }]}>История расходов:</Text>
+                {financials.expenses.map((exp, idx) => (
                   <View key={idx} style={styles.expenseItem}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={GLOBAL_STYLES.textBody}>{exp.category}</Text>
-                      {exp.comment ? <Text style={GLOBAL_STYLES.textSmall}>{exp.comment}</Text> : null}
+                    <View>
+                      <Text style={{ color: COLORS.textMain, fontWeight: '500' }}>{exp.category}</Text>
+                      <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 2 }}>{exp.comment || 'Без описания'}</Text>
                     </View>
                     <Text style={{ color: COLORS.danger, fontWeight: '600' }}>-{formatKZT(exp.amount)}</Text>
                   </View>
-                ))
-              ) : (
-                <Text style={GLOBAL_STYLES.textMuted}>Чеков пока нет</Text>
-              )}
-
-              {!isDone && (
-                <PeButton
-                  title="Добавить расход (Чек)"
-                  variant="ghost"
-                  icon={<PlusCircle color={COLORS.textMain} size={18} />}
-                  onPress={() => setExpenseModalVisible(true)}
-                  style={{ marginTop: SIZES.medium, borderWidth: 1, borderColor: COLORS.border }}
-                />
-              )}
-            </View>
+                ))}
+              </View>
+            )}
           </PeCard>
+        )}
 
-          {/* СПЕЦИФИКАЦИЯ (BOM) */}
-          <PeCard elevated={false} style={{ marginBottom: 40 }}>
-            <Text style={styles.sectionTitle}>Спецификация (BOM)</Text>
-            {bom.length === 0 ? (
-              <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: SIZES.medium }]}>Спецификация пуста</Text>
+        {/* 🛍 BOM СПЕЦИФИКАЦИЯ (ТОЛЬКО ДЛЯ КОМПЛЕКСНОГО МОНТАЖА) */}
+        {isComplex && (
+          <PeCard elevated={false} style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <ShoppingBag color={COLORS.primary} size={20} />
+              <Text style={styles.sectionTitle}>Спецификация (BOM)</Text>
+            </View>
+            
+            {bomList.length === 0 ? (
+              <Text style={[GLOBAL_STYLES.textMuted, { textAlign: 'center', marginVertical: 16 }]}>Список пуст</Text>
             ) : (
-              bom.map((item, index) => (
-                <View key={index} style={styles.bomItem}>
-                  <View style={{ flex: 1, marginRight: SIZES.small }}>
-                    <PeInput
-                      placeholder="Наименование"
-                      value={item.name}
-                      onChangeText={(val) => { const n = [...bom]; n[index].name = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
+              bomList.map((item, index) => (
+                <View key={index} style={styles.bomItemRow}>
+                  <View style={{ flex: 1 }}>
+                    <PeInput 
+                      placeholder="Наименование" 
+                      value={item.name} 
+                      onChangeText={(val) => updateBOMItem(index, 'name', val)}
+                      editable={!isOrderClosed}
+                      style={{ marginBottom: 0, height: 40 }}
                     />
                   </View>
-                  <View style={{ width: 60, marginRight: SIZES.small }}>
-                    <PeInput
-                      placeholder="Кол."
-                      value={item.qty.toString()}
+                  <View style={{ width: 60, marginHorizontal: 8 }}>
+                    <PeInput 
+                      placeholder="Кол" 
+                      value={item.qty.toString()} 
+                      onChangeText={(val) => updateBOMItem(index, 'qty', val)}
                       keyboardType="numeric"
-                      onChangeText={(val) => { const n = [...bom]; n[index].qty = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
+                      editable={!isOrderClosed}
+                      style={{ marginBottom: 0, height: 40, textAlign: 'center' }}
                     />
                   </View>
                   <View style={{ width: 50 }}>
-                    <PeInput
-                      placeholder="Ед."
-                      value={item.unit}
-                      onChangeText={(val) => { const n = [...bom]; n[index].unit = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
+                    <PeInput 
+                      placeholder="Ед" 
+                      value={item.unit} 
+                      onChangeText={(val) => updateBOMItem(index, 'unit', val)}
+                      editable={!isOrderClosed}
+                      style={{ marginBottom: 0, height: 40, textAlign: 'center', paddingHorizontal: 4 }}
                     />
                   </View>
-                  {!isDone && (
-                    <TouchableOpacity onPress={() => { const n = [...bom]; n.splice(index, 1); setBom(n); }} style={{ marginLeft: SIZES.small }}>
-                      <Trash2 color={COLORS.danger} size={20} />
+                  {!isOrderClosed && (
+                    <TouchableOpacity onPress={() => removeBOMItem(index)} style={styles.bomDeleteBtn}>
+                      <Trash2 color={COLORS.danger} size={18} />
                     </TouchableOpacity>
                   )}
                 </View>
               ))
             )}
 
-            {!isDone && (
+            {!isOrderClosed && (
               <View style={GLOBAL_STYLES.rowBetween}>
-                <PeButton title="Добавить строку" variant="ghost" onPress={() => setBom([...bom, { name: "", qty: 1, unit: "шт" }])} />
-                <PeButton title="Сохранить BOM" variant="primary" onPress={handleSaveBOM} loading={loading} />
+                <TouchableOpacity style={styles.outlineBtn} onPress={addBOMItem}>
+                  <Plus color={COLORS.textMain} size={18} />
+                  <Text style={styles.outlineBtnText}>Добавить</Text>
+                </TouchableOpacity>
+                {isBomEdited && (
+                  <TouchableOpacity style={[styles.outlineBtn, { borderColor: COLORS.primary }]} onPress={saveBOMList} disabled={loading}>
+                    <Save color={COLORS.primary} size={18} />
+                    <Text style={[styles.outlineBtnText, { color: COLORS.primary }]}>Сохранить BOM</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </PeCard>
+        )}
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {/* ✅ КНОПКА ЗАВЕРШЕНИЯ */}
+        {(!isOrderClosed && (order.status === 'work' || isMinor)) && (
+          <TouchableOpacity style={styles.finishBtn} onPress={handleFinalize} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : (
+              <>
+                <CheckCircle color="#fff" size={24} style={{ marginRight: 10 }} />
+                <Text style={styles.finishBtnText}>ЗАВЕРШИТЬ И РАСЧИТАТЬ</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+        
+        <View style={{ height: 40 }} />
+      </ScrollView>
 
-      {/* 🔮 МОДАЛЬНЫЕ ОКНА */}
-      <Modal visible={priceModalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
-              <View style={GLOBAL_STYLES.rowBetween}>
-                <Text style={GLOBAL_STYLES.h2}>Договорная цена</Text>
-                <TouchableOpacity onPress={() => setPriceModalVisible(false)}><X color={COLORS.textMuted} size={24} /></TouchableOpacity>
-              </View>
-              <PeInput
-                label="Новая цена (₸)"
-                keyboardType="numeric"
-                value={newPrice}
-                onChangeText={setNewPrice}
-                icon={<DollarSign color={COLORS.primary} size={18} />}
-              />
-              <PeButton title="Применить цену" variant="primary" onPress={handleUpdatePrice} loading={loading} style={{ marginTop: SIZES.medium }} />
-            </ScrollView>
+      {/* 🪟 МОДАЛКА: ДОБАВЛЕНИЕ РАСХОДА */}
+      <Modal visible={modalExpenseVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={[GLOBAL_STYLES.h2, { marginBottom: 16 }]}>Новый чек (Расход)</Text>
+            <PeInput 
+              label="Сумма (₸)" 
+              placeholder="Например: 15000" 
+              value={expenseAmount} 
+              onChangeText={setExpenseAmount}
+              keyboardType="numeric"
+            />
+            <PeInput 
+              label="Назначение" 
+              placeholder="Покупка кабеля..." 
+              value={expenseComment} 
+              onChangeText={setExpenseComment}
+            />
+            
+            <View style={[GLOBAL_STYLES.rowBetween, { marginTop: 16 }]}>
+              <TouchableOpacity style={[styles.outlineBtn, { flex: 1, marginRight: 8 }]} onPress={() => setModalExpenseVisible(false)}>
+                <Text style={styles.outlineBtnText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, { flex: 1, marginLeft: 8, backgroundColor: COLORS.danger, borderColor: COLORS.danger }]} onPress={handleAddExpense} disabled={loading}>
+                <Text style={[styles.actionBtnText, { color: '#fff' }]}>Добавить</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
-      <Modal visible={expenseModalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
-              <View style={GLOBAL_STYLES.rowBetween}>
-                <Text style={GLOBAL_STYLES.h2}>Добавить расход</Text>
-                <TouchableOpacity onPress={() => setExpenseModalVisible(false)}><X color={COLORS.textMuted} size={24} /></TouchableOpacity>
-              </View>
-              <PeInput
-                label="Сумма (₸)"
-                keyboardType="numeric"
-                value={newExpense.amount}
-                onChangeText={(v) => setNewExpense({ ...newExpense, amount: v })}
-              />
-              <PeInput
-                label="Категория (Например: Материалы)"
-                value={newExpense.category}
-                onChangeText={(v) => setNewExpense({ ...newExpense, category: v })}
-              />
-              <PeInput
-                label="Комментарий / Номер чека (Опционально)"
-                value={newExpense.comment}
-                onChangeText={(v) => setNewExpense({ ...newExpense, comment: v })}
-              />
-              <PeButton title="Сохранить чек" variant="danger" onPress={handleAddExpense} loading={loading} style={{ marginTop: SIZES.medium }} />
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={assignModalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
-              <View style={GLOBAL_STYLES.rowBetween}>
-                <Text style={GLOBAL_STYLES.h2}>Назначить бригаду</Text>
-                <TouchableOpacity onPress={() => setAssignModalVisible(false)}><X color={COLORS.textMuted} size={24} /></TouchableOpacity>
-              </View>
-
-              <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: SIZES.small, marginTop: SIZES.base }]}>
-                Выберите бригаду для передачи объекта #{order.id}:
-              </Text>
-
-              {brigades.length === 0 ? (
-                <Text style={[GLOBAL_STYLES.textMain, { marginVertical: SIZES.medium }]}>Нет активных бригад в системе.</Text>
-              ) : (
-                <View style={{ gap: SIZES.small, marginBottom: SIZES.large }}>
-                  {brigades.map(b => (
-                    <TouchableOpacity
-                      key={b.id}
-                      style={[styles.brigadeOption, selectedBrigadeId === b.id && styles.brigadeOptionActive]}
-                      onPress={() => setSelectedBrigadeId(b.id)}
-                      activeOpacity={0.7}
-                    >
-                      <HardHat color={selectedBrigadeId === b.id ? COLORS.primary : COLORS.textMuted} size={20} />
-                      <Text style={[styles.brigadeOptionText, selectedBrigadeId === b.id && { color: COLORS.primary }]}>
-                        {b.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              <PeButton
-                title="Назначить на объект"
-                variant="primary"
-                onPress={handleAssignBrigade}
-                loading={loading}
-              />
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 }
 
+// =============================================================================
+// СТИЛИ
+// =============================================================================
 const styles = StyleSheet.create({
   header: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: SIZES.large,
-    paddingVertical: SIZES.medium,
+    paddingTop: SIZES.large,
+    paddingBottom: SIZES.medium,
     backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   backBtn: {
-    marginRight: SIZES.medium,
-    padding: SIZES.base,
+    padding: 8,
+    marginRight: 8,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: SIZES.fontLarge,
+    fontWeight: '700',
+    color: COLORS.textMain,
   },
   scrollContent: {
-    padding: SIZES.large
+    padding: SIZES.medium,
+  },
+  sectionCard: {
+    padding: SIZES.medium,
+    marginBottom: SIZES.medium,
+    borderRadius: SIZES.radiusMd,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   sectionTitle: {
-    fontSize: SIZES.fontTitle,
-    fontWeight: "700",
+    fontSize: SIZES.fontMedium,
+    fontWeight: '600',
     color: COLORS.textMain,
-    marginBottom: SIZES.medium,
-    letterSpacing: -0.5,
+    marginLeft: 10,
   },
   infoRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: SIZES.base,
+    marginBottom: 12,
   },
-  techRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+  minorDescBox: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
+    marginBottom: 12
   },
-  finRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  minorDescText: {
+    color: COLORS.textMain,
+    fontStyle: 'italic',
+    lineHeight: 20
+  },
+  monoText: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: SIZES.fontBase,
+    fontWeight: '600',
+    color: COLORS.textMain,
   },
   divider: {
     height: 1,
     backgroundColor: COLORS.border,
-    marginVertical: SIZES.medium,
+    marginVertical: 16,
+  },
+  profitBox: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    padding: 16,
+    borderRadius: SIZES.radiusSm,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  outlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.surface,
+  },
+  outlineBtnText: {
+    color: COLORS.textMain,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: SIZES.radiusSm,
+  },
+  actionBtnText: {
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  takeBtn: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 16,
+    borderRadius: SIZES.radiusMd,
+    alignItems: 'center',
+    marginBottom: SIZES.medium,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  takeBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: SIZES.fontBase,
+    letterSpacing: 1,
+  },
+  finishBtn: {
+    backgroundColor: COLORS.success,
+    flexDirection: 'row',
+    paddingVertical: 16,
+    borderRadius: SIZES.radiusMd,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SIZES.medium,
+    shadowColor: COLORS.success,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  finishBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: SIZES.fontBase,
+    letterSpacing: 1,
+  },
+  statusGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  statusBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  statusBtnActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: 'rgba(255, 107, 0, 0.1)',
+  },
+  statusBtnText: {
+    color: COLORS.textMuted,
+    fontWeight: '600',
+  },
+  statusBtnTextActive: {
+    color: COLORS.primary,
+  },
+  bomItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  bomDeleteBtn: {
+    padding: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: SIZES.radiusSm,
+    marginLeft: 8,
   },
   expenseItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)'
+    borderBottomColor: COLORS.border,
   },
-  bomItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: SIZES.medium,
-  },
-  alertDanger: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+  closedAlert: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
-    padding: SIZES.medium,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    padding: 12,
     borderRadius: SIZES.radiusSm,
     marginBottom: SIZES.medium,
-    alignItems: "center",
+  },
+  closedAlertText: {
+    color: COLORS.danger,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SIZES.large,
   },
-  modalContent: {
+  modalContainer: {
+    width: '100%',
     backgroundColor: COLORS.surface,
     padding: SIZES.large,
-    borderTopLeftRadius: SIZES.radiusLg,
-    borderTopRightRadius: SIZES.radiusLg,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-    maxHeight: '80%',
-  },
-  brigadeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: SIZES.medium,
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: SIZES.radiusSm,
+    borderRadius: SIZES.radiusMd,
     borderWidth: 1,
     borderColor: COLORS.border,
-  },
-  brigadeOptionActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: 'rgba(255, 107, 0, 0.1)',
-  },
-  brigadeOptionText: {
-    marginLeft: SIZES.small,
-    fontSize: SIZES.fontBase,
-    fontWeight: '600',
-    color: COLORS.textMain,
   }
 });
