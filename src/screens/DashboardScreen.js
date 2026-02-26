@@ -1,15 +1,15 @@
 /**
  * @file src/screens/DashboardScreen.js
- * @description Главный экран аналитики (PROADMIN Mobile v13.0.0 Enterprise).
+ * @description Главный экран аналитики (PROADMIN Mobile v12.7.0 Enterprise).
  * ДОБАВЛЕНО: Интеграция с DeepAnalytics (Средний чек, Долги, Расходы).
  * ДОБАВЛЕНО: Фильтрация по датам (За месяц / За всё время).
  * ДОБАВЛЕНО: Строгий RBAC (Бригадиры видят только свои метрики).
- * 🔥 ИСПРАВЛЕНО (v13.0.0): Метод API.getStats заменен на API.getDashboardStats для 
- * корректной работы с новым универсальным мобильным эндпоинтом (Крупный + Мелкий ремонт).
+ * 🔥 ИСПРАВЛЕНО (v12.7.0): Применен единый OLED-дизайн (Black & Orange) для шапки.
+ * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (используется строгий View).
  * НИКАКИХ УДАЛЕНИЙ: RefreshControl, formatKZT и базовая воронка сохранены на 100%.
  *
  * @module DashboardScreen
- * @version 13.0.0 (Universal Mobile Analytics Edition)
+ * @version 12.7.0 (Unified OLED Design Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -75,9 +75,8 @@ export default function DashboardScreen() {
         // endDate можно оставить пустым, база обрежет по "сегодня"
       }
 
-      // 🔥 ИСПРАВЛЕНО: Вызываем API.getDashboardStats для получения универсальной метрики
       const [statsData, deepData] = await Promise.all([
-        API.getDashboardStats(startDate, endDate),
+        API.getStats(startDate, endDate),
         API.getDeepAnalytics(startDate, endDate)
       ]);
 
@@ -129,7 +128,7 @@ export default function DashboardScreen() {
   return (
     // 🔥 Используем обычный View, чтобы избежать двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
-
+      
       {/* 🎩 ШАПКА ЭКРАНА (Единый OLED-стиль) */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
