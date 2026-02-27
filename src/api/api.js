@@ -1,8 +1,11 @@
 /**
  * @file src/api/api.js
- * @description Слой доступа к данным API (Mobile Client v13.0.1 Enterprise).
+ * @description Слой доступа к данным API (Mobile Client v13.0.4 Enterprise).
  * Обеспечивает строгую типизацию запросов к REST API сервера ProElectric.
- * 🔥 ИСПРАВЛЕНО (v13.0.1): Восстановлены ВСЕ оригинальные методы (getOrders, deleteOrder и т.д.). Ни одной строчки не удалено.
+ * 🔥 ИСПРАВЛЕНО (v13.0.4): Добавлен потерянный метод getBrigades и весь блок управления бригадами.
+ * 🔥 ИСПРАВЛЕНО (v13.0.4): Восстановлен метод verifyOtp, метод login возвращен к классическому username/password.
+ * 🔥 ИСПРАВЛЕНО (v13.0.4): BASE_URL переведен на https:// для предотвращения Nginx 301 редиректов.
+ * ДОБАВЛЕНО: API для Запросов Звонков (getCallRequests, updateCallRequestStatus).
  * ДОБАВЛЕНО: Регистрация Push-токенов (registerPushToken).
  * ДОБАВЛЕНО: Маршрутизация на /api/mobile/orders для получения склеенных лидов.
  * ДОБАВЛЕНО: API для Мелкого ремонта (takeMinorRepair, updateMinorRepairStatus).
@@ -13,7 +16,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const BASE_URL = 'http://erp.yeee.kz/api'; // Убедитесь, что IP или домен сервера правильные
+// 🔥 ИСПРАВЛЕНО: HTTPS предотвращает ошибку 404 (Route not found) при редиректе
+const BASE_URL = 'https://erp.yeee.kz/api';
 
 const fetchWithTimeout = async (resource, options = {}) => {
   const { timeout = 15000 } = options;
@@ -21,12 +25,17 @@ const fetchWithTimeout = async (resource, options = {}) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
 
-  const response = await fetch(resource, {
-    ...options,
-    signal: controller.signal
-  });
-  clearTimeout(id);
-  return response;
+  try {
+    const response = await fetch(resource, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return response;
+  } catch (err) {
+    clearTimeout(id);
+    throw new Error(err.name === 'AbortError' ? 'Превышено время ожидания сервера' : 'Ошибка сети. Проверьте интернет.');
+  }
 };
 
 class API {
@@ -34,7 +43,7 @@ class API {
     const cookie = await AsyncStorage.getItem('session_cookie');
     return {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
+      'Accept': 'application/json', // Гарантируем, что сервер отдаст JSON
       ...(cookie ? { 'Cookie': cookie } : {})
     };
   }
@@ -47,15 +56,19 @@ class API {
       await AsyncStorage.setItem('session_cookie', sessionId);
     }
 
+    const text = await response.text(); // Сначала читаем сырой текст
     let data;
+
     try {
-      data = await response.json();
+      data = text ? JSON.parse(text) : {};
     } catch (e) {
-      throw new Error('Ошибка парсинга ответа от сервера');
+      // 🛡️ АРХИТЕКТУРНЫЙ ПАТЧ: Если пришел HTML (ошибка 502/404), мы покажем статус!
+      console.error('[API Parse Error] RAW Response:', text.substring(0, 300));
+      throw new Error(`Сбой ответа сервера (${response.status}). Ожидался JSON, но получен HTML. Проверьте роут или HTTPS.`);
     }
 
     if (!response.ok) {
-      throw new Error(data.error || 'Произошла ошибка при запросе к серверу');
+      throw new Error(data.error || `Произошла ошибка HTTP: ${response.status}`);
     }
     return data;
   }
@@ -64,10 +77,22 @@ class API {
   // 🔐 AUTHENTICATION
   // ==========================================
 
-  static async login(phone, otp) {
+  // 🔥 ВОССТАНОВЛЕНО: Классический вход по логину и паролю
+  static async login(username, password) {
+    const response = await fetchWithTimeout(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      // Бэкенд ждет переменную login, а не username
+      body: JSON.stringify({ login: username, password }),
+    });
+    return this.handleResponse(response);
+  }
+
+  // 🔥 ВОССТАНОВЛЕНО: Проверка OTP из Telegram
+  static async verifyOtp(phone, otp) {
     const response = await fetchWithTimeout(`${BASE_URL}/auth/otp/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await this.getHeaders(),
       body: JSON.stringify({ phone, otp }),
     });
     return this.handleResponse(response);
@@ -83,7 +108,7 @@ class API {
   static async requestOtp(phone) {
     const response = await fetchWithTimeout(`${BASE_URL}/auth/otp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await this.getHeaders(),
       body: JSON.stringify({ phone }),
     });
     return this.handleResponse(response);
@@ -112,7 +137,6 @@ class API {
   // 📊 DASHBOARD & ANALYTICS
   // ==========================================
 
-  // 🔥 ИЗМЕНЕНО: Обращаемся к мобильному эндпоинту для учета мелкого ремонта
   static async getDashboardStats(startDate, endDate) {
     let url = `${BASE_URL}/mobile/dashboard/stats`;
     const params = new URLSearchParams();
@@ -153,10 +177,9 @@ class API {
   }
 
   // ==========================================
-  // 📦 ORDERS MANAGEMENT
+  // 📦 ORDERS MANAGEMENT (Комплексный ремонт)
   // ==========================================
 
-  // 🔥 ИЗМЕНЕНО: Переключено на /mobile/orders для склейки крупного и мелкого ремонта
   static async getOrders(status = 'all', limit = 100, offset = 0) {
     let url = `${BASE_URL}/mobile/orders?limit=${limit}&offset=${offset}`;
     if (status !== 'all') {
@@ -237,7 +260,6 @@ class API {
     return this.handleResponse(response);
   }
 
-  // Восстановленные оригинальные методы:
   static async createManualOrder(data) {
     const response = await fetchWithTimeout(`${BASE_URL}/orders`, {
       method: 'POST',
@@ -275,7 +297,6 @@ class API {
   // 🔧 MINOR REPAIRS (МЕЛКИЙ РЕМОНТ СПЕЦИФИКА)
   // ==========================================
 
-  // 🔥 НОВОЕ: Взять мелкий ремонт в работу
   static async takeMinorRepair(id) {
     const response = await fetchWithTimeout(`${BASE_URL}/minor-repairs/${id}/take`, {
       method: 'POST',
@@ -284,12 +305,70 @@ class API {
     return this.handleResponse(response);
   }
 
-  // 🔥 НОВОЕ: Обновить статус мелкого ремонта
   static async updateMinorRepairStatus(id, status) {
     const response = await fetchWithTimeout(`${BASE_URL}/minor-repairs/${id}/status`, {
       method: 'PATCH',
       headers: await this.getHeaders(),
       body: JSON.stringify({ status })
+    });
+    return this.handleResponse(response);
+  }
+
+  // ==========================================
+  // 📞 CALL REQUESTS (ЗВОНКИ)
+  // ==========================================
+
+  // 🔥 ДОБАВЛЕНО: Методы для вкладки Звонки
+  static async getCallRequests(limit = 100, offset = 0) {
+    const response = await fetchWithTimeout(`${BASE_URL}/call-requests?limit=${limit}&offset=${offset}`, {
+      headers: await this.getHeaders()
+    });
+    return this.handleResponse(response);
+  }
+
+  static async updateCallRequestStatus(id, status) {
+    const response = await fetchWithTimeout(`${BASE_URL}/call-requests/${id}/status`, {
+      method: 'PATCH',
+      headers: await this.getHeaders(),
+      body: JSON.stringify({ status })
+    });
+    return this.handleResponse(response);
+  }
+
+  // ==========================================
+  // 👷 BRIGADES MANAGEMENT
+  // ==========================================
+
+  // 🔥 ИСПРАВЛЕНО: Восстановлен метод получения Бригад (из-за которого был краш)
+  static async getBrigades() {
+    const response = await fetchWithTimeout(`${BASE_URL}/brigades`, {
+      headers: await this.getHeaders()
+    });
+    return this.handleResponse(response);
+  }
+
+  static async createBrigade(data) {
+    const response = await fetchWithTimeout(`${BASE_URL}/brigades`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return this.handleResponse(response);
+  }
+
+  static async updateBrigade(id, data) {
+    const response = await fetchWithTimeout(`${BASE_URL}/brigades/${id}`, {
+      method: 'PATCH',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return this.handleResponse(response);
+  }
+
+  static async deleteBrigade(id) {
+    const response = await fetchWithTimeout(`${BASE_URL}/brigades/${id}`, {
+      method: 'DELETE',
+      headers: await this.getHeaders()
     });
     return this.handleResponse(response);
   }

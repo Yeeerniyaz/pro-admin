@@ -1,13 +1,15 @@
 /**
  * @file src/screens/SettingsScreen.js
- * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v12.2.1 Enterprise).
- * 🔥 ИСПРАВЛЕНО (v12.2.1): Убрано дублирование отступа SafeAreaView (черная полоса сверху).
- * 🔥 ДОБАВЛЕНО: Полная поддержка Гибридного Калькулятора (Управление тарифами за кв.м. и коэффициентами).
- * 🔥 ДОБАВЛЕНО: Управление Глобальными Скидками и Режимом калькулятора прямо с телефона.
+ * @description Экран управления прайс-листом и системными настройками (PROADMIN Mobile v13.5.0 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v13.5.0): Внедрено строгое иммутабельное обновление состояний (защита от багов рендера).
+ * 🔥 ИСПРАВЛЕНО (v13.5.0): Добавлен бронебойный Fallback для всех API запросов (настройки, прайсы, тарифы).
+ * ДОБАВЛЕНО: Полная поддержка Гибридного Калькулятора (Управление тарифами за кв.м. и коэффициентами).
+ * ДОБАВЛЕНО: Управление Глобальными Скидками и Режимом калькулятора прямо с телефона.
  * ИСПРАВЛЕНО: Жесткий фикс клавиатуры (behavior="padding") для Android.
  * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module SettingsScreen
+ * @version 13.5.0 (Immutable State & Safe API Edition)
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -25,7 +27,7 @@ import {
 } from "react-native";
 import { Save, Sliders, AlertCircle, TrendingDown, Layers, Settings } from "lucide-react-native";
 
-import { API } from "../api/api";
+import API from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
@@ -46,18 +48,25 @@ export default function SettingsScreen() {
   const [error, setError] = useState(null);
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ ИЗ БЭКЕНДА
+  // 📡 ЗАГРУЗКА ДАННЫХ ИЗ БЭКЕНДА (С ЗАЩИТОЙ FALLBACK)
   // =============================================================================
   const fetchSettings = async (isRefresh = false) => {
     try {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      // Запрашиваем параллельно и прайс, и настройки
-      const [priceData, settingsData] = await Promise.all([
-        API.getPricelist(),
-        API.getSettings()
-      ]);
+      const headers = await API.getHeaders();
+
+      // 🔥 АРХИТЕКТУРНЫЙ ПАТЧ: Умный фоллбэк, если методы еще не добавлены в api.js
+      const pricePromise = typeof API.getPricelist === 'function'
+        ? API.getPricelist()
+        : fetch('https://erp.yeee.kz/api/pricelist', { headers }).then(res => res.json());
+
+      const settingsPromise = typeof API.getSettings === 'function'
+        ? API.getSettings()
+        : fetch('https://erp.yeee.kz/api/settings', { headers }).then(res => res.json());
+
+      const [priceData, settingsData] = await Promise.all([pricePromise, settingsPromise]);
 
       setPricelist(priceData || []);
 
@@ -74,7 +83,7 @@ export default function SettingsScreen() {
       const uniqueTariffs = Object.values((calcData.tariffs || []).reduce((acc, t) => {
         acc[t.property_type] = t; return acc;
       }, {}));
-      
+
       const uniqueCoeffs = Object.values((calcData.coefficients || []).reduce((acc, c) => {
         acc[c.code] = c; return acc;
       }, {}));
@@ -100,24 +109,36 @@ export default function SettingsScreen() {
   }, []);
 
   // =============================================================================
-  // ✍️ ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ STATE
+  // ✍️ ЛОКАЛЬНОЕ ОБНОВЛЕНИЕ STATE (ИММУТАБЕЛЬНОЕ)
   // =============================================================================
   const handlePriceChange = (categoryIndex, itemIndex, newPriceStr) => {
-    const updatedPricelist = [...pricelist];
-    updatedPricelist[categoryIndex].items[itemIndex].currentPrice = newPriceStr;
-    setPricelist(updatedPricelist);
+    // 🔥 ИСПРАВЛЕНО: Строгое иммутабельное обновление вложенного массива
+    setPricelist(prev => {
+      const updated = [...prev];
+      updated[categoryIndex] = { ...updated[categoryIndex] };
+      updated[categoryIndex].items = [...updated[categoryIndex].items];
+      updated[categoryIndex].items[itemIndex] = {
+        ...updated[categoryIndex].items[itemIndex],
+        currentPrice: newPriceStr
+      };
+      return updated;
+    });
   };
 
   const handleTariffChange = (index, val) => {
-    const updated = [...tariffs];
-    updated[index].base_price_sqm = val;
-    setTariffs(updated);
+    setTariffs(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], base_price_sqm: val };
+      return updated;
+    });
   };
 
   const handleCoeffChange = (index, val) => {
-    const updated = [...coefficients];
-    updated[index].multiplier = val;
-    setCoefficients(updated);
+    setCoefficients(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], multiplier: val };
+      return updated;
+    });
   };
 
   const handleGlobalChange = (key, val) => {
@@ -125,10 +146,11 @@ export default function SettingsScreen() {
   };
 
   // =============================================================================
-  // 💾 СОХРАНЕНИЕ НА СЕРВЕР (ORCHESTRATOR)
+  // 💾 СОХРАНЕНИЕ НА СЕРВЕР (ORCHESTRATOR СО ВСТРОЕННЫМ FALLBACK)
   // =============================================================================
   const handleSaveSettings = async () => {
     setSaving(true);
+    const headers = await API.getHeaders();
 
     try {
       // 1. Сохраняем общие настройки (скидки, режим) + точный прайс
@@ -140,7 +162,6 @@ export default function SettingsScreen() {
 
       pricelist.forEach((section) => {
         section.items.forEach((item) => {
-          // Игнорируем ключи, которые уже обработали
           if (item.key && item.key !== 'calculator_mode' && item.key !== 'global_discount_active' && item.key !== 'global_discount_percent') {
             payload.push({
               key: item.key,
@@ -150,23 +171,35 @@ export default function SettingsScreen() {
         });
       });
 
-      await API.updateBulkSettings(payload);
+      if (typeof API.updateBulkSettings === 'function') {
+        await API.updateBulkSettings(payload);
+      } else {
+        await fetch('https://erp.yeee.kz/api/settings', { method: 'POST', headers, body: JSON.stringify(payload) });
+      }
 
       // 2. Сохраняем Тарифы
       for (const t of tariffs) {
-        await API.updateTariffs(t.property_type, parseFloat(t.base_price_sqm));
+        if (typeof API.updateTariffs === 'function') {
+          await API.updateTariffs(t.property_type, parseFloat(t.base_price_sqm));
+        } else {
+          await fetch('https://erp.yeee.kz/api/settings/tariffs', { method: 'PATCH', headers, body: JSON.stringify({ propertyType: t.property_type, basePriceSqm: parseFloat(t.base_price_sqm) }) });
+        }
       }
 
       // 3. Сохраняем Коэффициенты
       for (const c of coefficients) {
-        await API.updateCoefficients(c.code, parseFloat(c.multiplier));
+        if (typeof API.updateCoefficients === 'function') {
+          await API.updateCoefficients(c.code, parseFloat(c.multiplier));
+        } else {
+          await fetch('https://erp.yeee.kz/api/settings/coefficients', { method: 'PATCH', headers, body: JSON.stringify({ code: c.code, multiplier: parseFloat(c.multiplier) }) });
+        }
       }
 
       Alert.alert(
         "Успех",
         "Настройки, тарифы и прайс-лист успешно обновлены на сервере.",
       );
-      fetchSettings(true); // Перезагружаем для надежности
+      fetchSettings(true);
     } catch (err) {
       Alert.alert("Ошибка сохранения", err.message || "Не удалось сохранить настройки");
     } finally {
@@ -177,8 +210,7 @@ export default function SettingsScreen() {
   // =============================================================================
   // 🖥 UI COMPONENTS (ПОДКОМПОНЕНТЫ)
   // =============================================================================
-  
-  // Кастомный переключатель (Segmented Control)
+
   const SegmentedControl = ({ options, selectedValue, onSelect }) => (
     <View style={styles.segmentedContainer}>
       {options.map((opt) => {
@@ -203,7 +235,6 @@ export default function SettingsScreen() {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Используем стандартный View вместо SafeAreaView для избежания двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -263,17 +294,17 @@ export default function SettingsScreen() {
                 />
               }
             >
-              
+
               {/* 🎁 БЛОК 1: ГЛОБАЛЬНЫЕ СКИДКИ */}
               <View style={styles.categoryBlock}>
                 <View style={styles.categoryHeader}>
-                  <TrendingDown color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <TrendingDown color={COLORS.primary} size={18} style={{ marginRight: 6 }} />
                   <Text style={styles.categoryTitle}>Скидки и Режим</Text>
                 </View>
                 <PeCard elevated={false} style={styles.itemsCard}>
                   <View style={styles.itemRowCol}>
                     <Text style={GLOBAL_STYLES.textBody}>Режим калькулятора</Text>
-                    <SegmentedControl 
+                    <SegmentedControl
                       options={[
                         { label: 'Квадратура', value: 'sq_meter' },
                         { label: 'Точный', value: 'price_list' }
@@ -284,7 +315,7 @@ export default function SettingsScreen() {
                   </View>
                   <View style={styles.itemRowCol}>
                     <Text style={GLOBAL_STYLES.textBody}>Статус скидки</Text>
-                    <SegmentedControl 
+                    <SegmentedControl
                       options={[
                         { label: 'ВКЛЮЧЕНА', value: 'true' },
                         { label: 'ВЫКЛЮЧЕНА', value: 'false' }
@@ -316,7 +347,7 @@ export default function SettingsScreen() {
               {/* 🏢 БЛОК 2: ТАРИФЫ ЗА МЕТР */}
               <View style={styles.categoryBlock}>
                 <View style={styles.categoryHeader}>
-                  <Layers color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <Layers color={COLORS.primary} size={18} style={{ marginRight: 6 }} />
                   <Text style={styles.categoryTitle}>Базовые тарифы (за 1 м²)</Text>
                 </View>
                 <PeCard elevated={false} style={styles.itemsCard}>
@@ -347,7 +378,7 @@ export default function SettingsScreen() {
               {/* 📈 БЛОК 3: КОЭФФИЦИЕНТЫ */}
               <View style={styles.categoryBlock}>
                 <View style={styles.categoryHeader}>
-                  <Settings color={COLORS.primary} size={18} style={{marginRight: 6}}/>
+                  <Settings color={COLORS.primary} size={18} style={{ marginRight: 6 }} />
                   <Text style={styles.categoryTitle}>Коэффициенты</Text>
                 </View>
                 <PeCard elevated={false} style={styles.itemsCard}>

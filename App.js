@@ -1,11 +1,11 @@
 /**
  * @file App.js
- * @description Командный центр мобильного приложения PROADMIN (React Native v13.0.1 Enterprise).
+ * @description Командный центр мобильного приложения PROADMIN (React Native v13.0.2 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v13.0.2): Устранен краш TypeError: removeNotificationSubscription is not a function (используется .remove()).
+ * 🔥 ИСПРАВЛЕНО (v13.0.2): Убрана фатальная опечатка "NotificatЛОions" в настройках канала Android.
  * ИСПРАВЛЕНО: Архитектура разделена на Root (Провайдеры) и Navigator (Логика) для устранения TypeError.
  * ДОБАВЛЕНО: Глобальная интеграция Socket.IO для мгновенных уведомлений о заказах.
- * 🔥 ИСПРАВЛЕНО (v13.0.1): Жесткая защита платформенного кода (Platform.OS). 
- * Добавлена передача projectId (Constants) в getExpoPushTokenAsync, чтобы избежать крашей в Expo Go.
- * НИКАКИХ УДАЛЕНИЙ: Весь навигационный стек сохранен на 100%.
+ * НИКАКИХ УДАЛЕНИЙ: Весь навигационный стек и сокеты сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module RootApp
  */
@@ -20,7 +20,7 @@ import { io } from "socket.io-client";
 // 🔥 Импорты для Push-уведомлений (Expo API)
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants'; // 🔥 ВАЖНО: Нужен для получения projectId
+import Constants from 'expo-constants'; // ВАЖНО: Нужен для получения projectId
 import API from "./src/api/api";
 
 // Импорт архитектуры и шлюза
@@ -54,7 +54,8 @@ async function registerForPushNotificationsAsync() {
 
   try {
     if (Platform.OS === 'android') {
-      await NotificatЛОions.setNotificationChannelAsync('default', {
+      // 🔥 ИСПРАВЛЕНО: Убрана опечатка NotificatЛОions -> Notifications
+      await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
@@ -74,7 +75,7 @@ async function registerForPushNotificationsAsync() {
         return null;
       }
 
-      // 🔥 ИСПРАВЛЕНИЕ ПЛАТФОРМЕННОГО КРАША: Получаем projectId
+      // Получаем projectId
       const projectId =
         Constants?.expoConfig?.extra?.eas?.projectId ??
         Constants?.easConfig?.projectId;
@@ -175,14 +176,16 @@ function RootNavigator() {
     }
 
     return () => {
+      // 🔥 ИСПРАВЛЕНО: Убрано обращение к несуществующему методу Notifications.removeNotificationSubscription
+      // В React Native / Expo правильный способ очистки — вызов .remove() у самой подписки.
       if (socketInstance) {
         socketInstance.disconnect();
       }
       if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
+        notificationListener.current.remove();
       }
       if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+        responseListener.current.remove();
       }
     };
   }, [user]); // Сокет переподключается при смене пользователя

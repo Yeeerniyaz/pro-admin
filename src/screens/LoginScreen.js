@@ -1,13 +1,12 @@
 /**
  * @file src/screens/LoginScreen.js
- * @description Экран авторизации (PROADMIN Mobile v12.12.0 Enterprise).
- * 🔥 ИСПРАВЛЕНО (v12.12.0): Улучшена работа KeyboardAvoidingView для маленьких экранов.
- * 🔥 ИСПРАВЛЕНО: Отключена автокоррекция (autoCorrect) для технических полей (логин/OTP).
+ * @description Экран авторизации (PROADMIN Mobile v12.12.2 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v12.12.2): Убран устаревший LayoutAnimation (устранена ошибка WARN в New Architecture).
+ * 🔥 ИСПРАВЛЕНО (v12.12.2): Жесткое форматирование телефона (.slice(-10)) для 100% совпадения с базой данных сервера.
  * ДОБАВЛЕНО: Единый OLED-стандарт дизайна (глубокий черный фон, отсутствие теней, оранжевый акцент).
- * НИКАКИХ УДАЛЕНИЙ: Двухшаговая OTP-авторизация и резервный вход (Legacy) сохранены на 100%.
  *
  * @module LoginScreen
- * @version 12.12.0 (OLED & Keyboard Polish Edition)
+ * @version 12.12.2 (Fabric Ready & Smart Auth Edition)
  */
 
 import React, { useState, useContext } from 'react';
@@ -45,17 +44,22 @@ export default function LoginScreen() {
   // 🔐 ОБРАБОТЧИКИ НОВОГО ФЛОУ (OTP)
   // ==========================================
   const handleRequestOtp = async () => {
-    if (!phone || phone.length < 10) {
-      setErrorMsg('Введите корректный номер телефона');
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      setErrorMsg('Введите корректный номер телефона (мин. 10 цифр)');
       return;
     }
+
+    // 🔥 ИСПРАВЛЕНИЕ БАГА БД: берем строго последние 10 цифр (код + номер)
+    const formattedPhone = cleanPhone.slice(-10);
+
     setLoading(true);
     setErrorMsg('');
     try {
-      await requestOtp(phone);
+      await requestOtp(formattedPhone);
       setStep(2); // Переходим к вводу кода
     } catch (error) {
-      setErrorMsg(error.message || 'Ошибка при запросе кода');
+      setErrorMsg(error.message || 'Ошибка при запросе кода. Проверьте номер.');
     } finally {
       setLoading(false);
     }
@@ -66,11 +70,14 @@ export default function LoginScreen() {
       setErrorMsg('Введите код из Telegram');
       return;
     }
+
+    // Форматируем телефон точно так же, как при запросе
+    const formattedPhone = phone.replace(/\D/g, '').slice(-10);
+
     setLoading(true);
     setErrorMsg('');
     try {
-      await verifyOtp(phone, otpCode);
-      // При успехе Context автоматически обновит стейт user и перекинет на MainTabs
+      await verifyOtp(formattedPhone, otpCode);
     } catch (error) {
       setErrorMsg(error.message || 'Неверный код');
     } finally {
@@ -98,10 +105,9 @@ export default function LoginScreen() {
   };
 
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Жесткий фикс клавиатуры для всех типов экранов
     <KeyboardAvoidingView
-      style={GLOBAL_STYLES.safeArea}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={[GLOBAL_STYLES.safeArea, { flex: 1, backgroundColor: COLORS.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>

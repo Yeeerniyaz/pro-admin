@@ -1,15 +1,16 @@
 /**
  * @file src/screens/BroadcastScreen.js
- * @description Центр уведомлений и рассылок (PROADMIN Mobile v12.11.0 Enterprise).
+ * @description Центр уведомлений и рассылок (PROADMIN Mobile v13.8.0 Enterprise).
  * Интеграция с Telegram-ботом: позволяет админу делать массовые рассылки пользователям по ролям.
- * 🔥 ИСПРАВЛЕНО (v12.11.0): Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
- * 🔥 ИСПРАВЛЕНО: Жесткий фикс клавиатуры при вводе длинного текста рассылки.
- * ДОБАВЛЕНО: Кнопка "Назад" для корректной навигации в стеке (возврат на UsersScreen).
+ * 🔥 ИСПРАВЛЕНО (v13.8.0): Фатальная ошибка импорта API (import API вместо { API }), вызывавшая краш.
+ * 🔥 ДОБАВЛЕНО (v13.8.0): Динамическое превью изображения (Live Image Preview) для проверки битых ссылок перед рассылкой.
+ * ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * ИСПРАВЛЕНО: Жесткий фикс клавиатуры при вводе длинного текста рассылки.
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки, оранжевые акценты).
  * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (API, Confirm Dialog, State) сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module BroadcastScreen
- * @version 12.11.0 (Top Margin & Keyboard Fix Edition)
+ * @version 13.8.0 (Live Preview & Safe Import Edition)
  */
 
 import React, { useState } from "react";
@@ -24,6 +25,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Alert,
+  Image, // 🔥 Добавлено для превью картинки
 } from "react-native";
 import {
   Radio,
@@ -34,8 +36,8 @@ import {
   ArrowLeft,
 } from "lucide-react-native";
 
-// Импорт нашей архитектуры
-import { API } from "../api/api";
+// 🔥 ИСПРАВЛЕНО: Правильный дефолтный импорт нашего нового API
+import API from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
@@ -74,10 +76,10 @@ export default function BroadcastScreen({ navigation }) {
       return;
     }
 
-    // Защита от случайного нажатия (Confirm Dialog)
+    // 🔥 Улучшенный Confirm Dialog (показывает наличие картинки)
     Alert.alert(
       "Подтверждение",
-      `Вы уверены, что хотите запустить рассылку?\nАудитория: ${TARGET_OPTIONS.find((t) => t.id === targetRole).label}`,
+      `Вы уверены, что хотите запустить рассылку?\n\n👥 Аудитория: ${TARGET_OPTIONS.find((t) => t.id === targetRole).label}\n🖼 Картинка: ${imageUrl.trim() ? 'Прикреплена' : 'Нет'}`,
       [
         { text: "Отмена", style: "cancel" },
         {
@@ -96,7 +98,7 @@ export default function BroadcastScreen({ navigation }) {
     try {
       const res = await API.sendBroadcast(
         message,
-        imageUrl || null,
+        imageUrl.trim() || null,
         targetRole,
       );
 
@@ -124,9 +126,7 @@ export default function BroadcastScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Используем обычный View для предотвращения двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
-      {/* 🔥 ИСПРАВЛЕНИЕ: Жесткий фикс клавиатуры для длинных текстов */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "padding"}
@@ -181,7 +181,6 @@ export default function BroadcastScreen({ navigation }) {
                           isActive && styles.targetBtnActive,
                         ]}
                       >
-                        {/* Клонируем иконку, чтобы покрасить ее, если она активна */}
                         {React.cloneElement(opt.icon, {
                           color: isActive ? COLORS.primary : COLORS.textMuted,
                         })}
@@ -210,10 +209,23 @@ export default function BroadcastScreen({ navigation }) {
                   autoCorrect={false}
                   icon={<ImageIcon color={COLORS.textMuted} size={18} />}
                   editable={!loading}
+                  style={imageUrl.trim() ? { marginBottom: SIZES.base } : {}}
                 />
 
+                {/* 🔥 LIVE ПРЕВЬЮ ИЗОБРАЖЕНИЯ */}
+                {imageUrl.trim().length > 5 && (
+                  <View style={styles.previewContainer}>
+                    <Text style={styles.previewLabel}>Предпросмотр (если ссылка валидна):</Text>
+                    <Image 
+                      source={{ uri: imageUrl.trim() }} 
+                      style={styles.previewImage}
+                      resizeMode="cover"
+                    />
+                  </View>
+                )}
+
                 {/* 3. Текст рассылки */}
-                <Text style={styles.sectionTitle}>
+                <Text style={[styles.sectionTitle, { marginTop: SIZES.medium }]}>
                   3. Текст сообщения (поддерживает HTML)
                 </Text>
                 <View style={styles.textAreaContainer}>
@@ -330,6 +342,30 @@ const styles = StyleSheet.create({
   },
   targetBtnTextActive: {
     color: COLORS.primary,
+  },
+
+  // Превью изображения
+  previewContainer: {
+    marginBottom: SIZES.medium,
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceElevated,
+    padding: SIZES.small,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  previewLabel: {
+    fontSize: 10,
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    marginBottom: SIZES.small,
+    alignSelf: 'flex-start',
+  },
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: '#1a1a1a', // Заглушка, пока грузится
   },
 
   // Текстовая область

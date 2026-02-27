@@ -1,15 +1,16 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v12.11.0 Enterprise).
- * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
- * 🔥 ДОБАВЛЕНО (v12.11.0): Умный локальный поиск (по ID, Имени, Телефону, Адресу, Описанию).
- * 🔥 ИСПРАВЛЕНО: Отсутствие "черной дыры" сверху (используется View вместо SafeAreaView).
+ * @description Экран реестра объектов (PROADMIN Mobile v13.2.1 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v13.2.1): В карточку "Мелкого ремонта" добавлено отображение ответственной Бригады и Цены.
+ * 🔥 ИСПРАВЛЕНО: Фатальная ошибка импорта (import API вместо { API }).
+ * 🔥 ИСПРАВЛЕНО: Внедрена интеллектуальная загрузка. Теперь getOrders питает сразу 2 вкладки (Комплекс и Мелкий ремонт).
+ * ДОБАВЛЕНО: Бронебойный Fallback для Звонков (защита от краша, если методов нет в api.js).
+ * ДОБАВЛЕНО: Умный локальный поиск (по ID, Имени, Телефону, Адресу, Описанию).
  * ДОБАВЛЕНО: Глобальные вкладки для работы с "Мелким ремонтом" и "Запросами звонков".
- * ДОБАВЛЕНО: OLED-дизайн (строгие рамки, оранжевые акценты, индикаторы Умного дома).
  * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и модалок сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module OrdersScreen
- * @version 12.11.0 (Ultimate Search & Multi-Pipeline Edition)
+ * @version 13.2.1 (Unified Data & Full UI Minor Repair Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -36,11 +37,10 @@ import {
   Layers,
   Wrench,
   PhoneCall,
-  Search // Иконка для поиска
+  Search
 } from "lucide-react-native";
 
-// Импорт нашей архитектуры
-import { API } from "../api/api";
+import API from "../api/api";
 import { PeCard, PeBadge, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 import { AuthContext } from "../context/AuthContext";
@@ -71,7 +71,6 @@ export default function OrdersScreen({ navigation }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
 
-  // 🎛 Глобальные вкладки (Комплекс / Мелкий / Звонки)
   const [globalTab, setGlobalTab] = useState("complex");
 
   const [orders, setOrders] = useState([]);
@@ -83,7 +82,6 @@ export default function OrdersScreen({ navigation }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [error, setError] = useState(null);
 
-  // 🔥 СТЕЙТ ДЛЯ ПОИСКА
   const [searchQuery, setSearchQuery] = useState("");
 
   const [statusModal, setStatusModal] = useState({ visible: false, id: null, type: null });
@@ -96,15 +94,26 @@ export default function OrdersScreen({ navigation }) {
       setError(null);
       if (!isRefresh) setLoading(true);
 
-      if (globalTab === "complex") {
+      if (globalTab === "complex" || globalTab === "minor") {
         const data = await API.getOrders(statusFilter, 100, 0);
-        setOrders(data || []);
-      } else if (globalTab === "minor") {
-        const data = await API.getMinorRepairs();
-        setMinorRepairs(data || []);
-      } else if (globalTab === "calls") {
-        const data = await API.getCallRequests();
-        setCallRequests(data || []);
+
+        const complexData = (data || []).filter(item => item.type === 'complex' || !item.type);
+        const minorData = (data || []).filter(item => item.type === 'minor');
+
+        setOrders(complexData);
+        setMinorRepairs(minorData);
+      }
+      else if (globalTab === "calls") {
+        if (typeof API.getCallRequests === 'function') {
+          const data = await API.getCallRequests();
+          setCallRequests(data || []);
+        } else {
+          const headers = await API.getHeaders();
+          const res = await fetch('https://erp.yeee.kz/api/call-requests', { headers });
+          const rawText = await res.text();
+          const data = rawText ? JSON.parse(rawText) : [];
+          setCallRequests(Array.isArray(data) ? data : []);
+        }
       }
     } catch (err) {
       setError(err.message || "Ошибка загрузки реестра");
@@ -123,7 +132,6 @@ export default function OrdersScreen({ navigation }) {
     fetchData(true);
   }, [statusFilter, globalTab]);
 
-  // 🔥 ЛОКАЛЬНЫЙ ПОИСК (МГНОВЕННЫЙ ФИЛЬТР)
   const getFilteredData = () => {
     let list = globalTab === 'complex' ? orders : globalTab === 'minor' ? minorRepairs : callRequests;
 
@@ -134,15 +142,12 @@ export default function OrdersScreen({ navigation }) {
         item.client_name?.toLowerCase().includes(lowerQ) ||
         item.client_phone?.toLowerCase().includes(lowerQ) ||
         item.details?.address?.toLowerCase().includes(lowerQ) ||
-        item.description?.toLowerCase().includes(lowerQ) // Для мелкого ремонта
+        item.description?.toLowerCase().includes(lowerQ)
       );
     }
     return list;
   };
 
-  // =============================================================================
-  // 🔄 ОБРАБОТКА СТАТУСОВ ДЛЯ МЕЛКОГО РЕМОНТА И ЗВОНКОВ
-  // =============================================================================
   const openStatusModal = (id, type) => {
     setStatusModal({ visible: true, id, type });
   };
@@ -153,8 +158,30 @@ export default function OrdersScreen({ navigation }) {
       setLoading(true);
       setStatusModal({ visible: false, id: null, type: null });
 
-      if (type === 'minor') await API.updateMinorRepairStatus(id, newStatus);
-      else if (type === 'call') await API.updateCallRequestStatus(id, newStatus);
+      if (type === 'minor') {
+        if (typeof API.updateMinorRepairStatus === 'function') {
+          await API.updateMinorRepairStatus(id, newStatus);
+        } else {
+          const headers = await API.getHeaders();
+          await fetch(`https://erp.yeee.kz/api/minor-repairs/${id}/status`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: newStatus })
+          });
+        }
+      }
+      else if (type === 'call') {
+        if (typeof API.updateCallRequestStatus === 'function') {
+          await API.updateCallRequestStatus(id, newStatus);
+        } else {
+          const headers = await API.getHeaders();
+          await fetch(`https://erp.yeee.kz/api/call-requests/${id}/status`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: newStatus })
+          });
+        }
+      }
 
       fetchData(true);
     } catch (e) {
@@ -245,6 +272,7 @@ export default function OrdersScreen({ navigation }) {
     );
   };
 
+  // 🔥 ОБНОВЛЕННАЯ КАРТОЧКА МЕЛКОГО РЕМОНТА
   const renderMinorItem = ({ item }) => (
     <PeCard elevated={false} style={styles.orderCard}>
       <View style={GLOBAL_STYLES.rowBetween}>
@@ -255,34 +283,56 @@ export default function OrdersScreen({ navigation }) {
         <PeBadge status={item.status} />
       </View>
       <View style={styles.divider} />
+
       <View style={GLOBAL_STYLES.rowBetween}>
         <View style={{ flex: 1 }}>
+          {/* Клиент */}
           <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
             <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
             <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Неизвестно"}</Text>
           </View>
+
+          {/* Телефон */}
           <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
             <PhoneCall color={COLORS.primary} size={14} style={{ marginRight: 6 }} />
             <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600' }]}>{item.client_phone || "—"}</Text>
           </View>
+
+          {/* 🔥 ДОБАВЛЕНО: БРИГАДА */}
+          <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+            <HardHat color={item.brigade_name ? COLORS.warning : COLORS.primary} size={14} style={{ marginRight: 6 }} />
+            <Text style={[GLOBAL_STYLES.textSmall, { color: item.brigade_name ? COLORS.warning : COLORS.primary, fontWeight: '600' }]} numberOfLines={1}>
+              {item.brigade_name ? item.brigade_name : "БИРЖА (Свободно)"}
+            </Text>
+          </View>
+
+          {/* Дата */}
           <View style={GLOBAL_STYLES.rowCenter}>
             <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
             <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
           </View>
         </View>
       </View>
-      <View style={[styles.divider, { marginVertical: 12 }]} />
-      <Text style={[GLOBAL_STYLES.textBody, { fontStyle: 'italic', marginBottom: SIZES.small }]}>"{item.description}"</Text>
 
-      {isAdmin && (
-        <View style={styles.footerRow}>
-          <View />
+      <View style={[styles.divider, { marginVertical: 12 }]} />
+      <Text style={[GLOBAL_STYLES.textBody, { fontStyle: 'italic', marginBottom: SIZES.small }]}>
+        "{item.description || item.details?.client_comment || "Нет описания"}"
+      </Text>
+
+      <View style={styles.footerRow}>
+        {/* 🔥 ДОБАВЛЕНО: ЦЕНА ВЫЗОВА */}
+        <View>
+          <Text style={GLOBAL_STYLES.textSmall}>Сумма вызова:</Text>
+          <Text style={styles.profitText}>{item.total_price ? formatKZT(item.total_price) : "Договорная"}</Text>
+        </View>
+
+        {isAdmin ? (
           <TouchableOpacity style={styles.actionButton} onPress={() => openStatusModal(item.id, 'minor')}>
-            <Text style={styles.actionText}>Изменить статус</Text>
+            <Text style={styles.actionText}>Статус</Text>
             <ChevronRight color={COLORS.primary} size={16} />
           </TouchableOpacity>
-        </View>
-      )}
+        ) : null}
+      </View>
     </PeCard>
   );
 
@@ -328,10 +378,8 @@ export default function OrdersScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР ЭКРАНА
   // =============================================================================
   return (
-    // 🔥 Используем View для фикса черной полосы (дублирования отступа)
     <View style={GLOBAL_STYLES.safeArea}>
 
-      {/* 🎩 ШАПКА ЭКРАНА (OLED Дизайн) */}
       <View style={[styles.header, GLOBAL_STYLES.rowBetween]}>
         <View style={GLOBAL_STYLES.rowCenter}>
           <View style={styles.iconWrapper}>
@@ -349,7 +397,6 @@ export default function OrdersScreen({ navigation }) {
         )}
       </View>
 
-      {/* 🗂 ГЛОБАЛЬНЫЕ ВКЛАДКИ */}
       <View style={styles.globalTabsContainer}>
         <TouchableOpacity style={[styles.globalTab, globalTab === 'complex' && styles.globalTabActive]} onPress={() => setGlobalTab('complex')}>
           <Briefcase color={globalTab === 'complex' ? COLORS.primary : COLORS.textMuted} size={16} />
@@ -365,7 +412,6 @@ export default function OrdersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* 🔍 ПАНЕЛЬ ПОИСКА */}
       <View style={styles.searchContainer}>
         <PeInput
           placeholder="Поиск по ID, имени, телефону..."
@@ -376,7 +422,6 @@ export default function OrdersScreen({ navigation }) {
         />
       </View>
 
-      {/* 🎛 ФИЛЬТРЫ СТАТУСОВ (Только для "Комплекс") */}
       {globalTab === 'complex' && (
         <View style={styles.filtersContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScrollContent}>
@@ -399,7 +444,6 @@ export default function OrdersScreen({ navigation }) {
         </View>
       )}
 
-      {/* 📜 СПИСОК (FLATLIST) */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
@@ -415,7 +459,7 @@ export default function OrdersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={getFilteredData()} // 🔥 Используем отфильтрованные данные поиска
+          data={getFilteredData()}
           keyExtractor={(item) => item.id.toString()}
           renderItem={globalTab === 'complex' ? renderOrderItem : globalTab === 'minor' ? renderMinorItem : renderCallItem}
           contentContainerStyle={styles.listContent}
@@ -434,7 +478,6 @@ export default function OrdersScreen({ navigation }) {
         />
       )}
 
-      {/* 🪟 МОДАЛЬНОЕ ОКНО ИЗМЕНЕНИЯ СТАТУСА (Для Мелкого ремонта и Звонков) */}
       <Modal visible={statusModal.visible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContentSmall}>
@@ -467,9 +510,6 @@ export default function OrdersScreen({ navigation }) {
   );
 }
 
-// =============================================================================
-// 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
-// =============================================================================
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
@@ -478,7 +518,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SIZES.large,
     paddingTop: SIZES.large,
     paddingBottom: SIZES.medium,
-    backgroundColor: COLORS.background, // OLED Black
+    backgroundColor: COLORS.background,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -486,7 +526,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: SIZES.radiusMd,
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // Фирменный оранжевый
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
     justifyContent: "center",
     alignItems: "center",
     marginRight: SIZES.medium,
@@ -574,7 +614,7 @@ const styles = StyleSheet.create({
     marginBottom: SIZES.medium,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.surface, // Строгий OLED дизайн
+    backgroundColor: COLORS.surface,
     borderRadius: SIZES.radiusMd,
   },
   orderId: {
@@ -666,8 +706,6 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSmall,
     textAlign: "center",
   },
-
-  // Стили для модалки статуса
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.85)",

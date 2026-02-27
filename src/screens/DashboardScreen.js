@@ -1,15 +1,17 @@
 /**
  * @file src/screens/DashboardScreen.js
- * @description Главный экран аналитики (PROADMIN Mobile v12.7.0 Enterprise).
+ * @description Главный экран аналитики (PROADMIN Mobile v13.9.0 Enterprise).
  * ДОБАВЛЕНО: Интеграция с DeepAnalytics (Средний чек, Долги, Расходы).
  * ДОБАВЛЕНО: Фильтрация по датам (За месяц / За всё время).
  * ДОБАВЛЕНО: Строгий RBAC (Бригадиры видят только свои метрики).
- * 🔥 ИСПРАВЛЕНО (v12.7.0): Применен единый OLED-дизайн (Black & Orange) для шапки.
- * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (используется строгий View).
- * НИКАКИХ УДАЛЕНИЙ: RefreshControl, formatKZT и базовая воронка сохранены на 100%.
+ * 🔥 ИСПРАВЛЕНО (v13.9.0): Фатальная ошибка импорта API (import API вместо { API }).
+ * 🔥 ИСПРАВЛЕНО (v13.9.0): Метод getStats заменен на правильный getDashboardStats + Fallback.
+ * ИСПРАВЛЕНО: Применен единый OLED-дизайн (Black & Orange) для шапки.
+ * ИСПРАВЛЕНО: Убран двойной отступ сверху (используется строгий View).
+ * НИКАКИХ УДАЛЕНИЙ: RefreshControl, formatKZT и базовая воронка сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module DashboardScreen
- * @version 12.7.0 (Unified OLED Design Edition)
+ * @version 13.9.0 (Safe Methods & OLED Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -33,8 +35,8 @@ import {
   BarChart3
 } from "lucide-react-native";
 
-// Импорт нашей архитектуры
-import { API } from "../api/api";
+// 🔥 ИСПРАВЛЕНО: Правильный дефолтный импорт нашего нового API
+import API from "../api/api";
 import { PeCard, PeBadge, PeButton } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 import { AuthContext } from "../context/AuthContext";
@@ -46,10 +48,10 @@ const formatKZT = (num) => {
 };
 
 export default function DashboardScreen() {
-  const { user, logout } = useContext(AuthContext); // 🔥 Используем RBAC и logout
+  const { user, logout } = useContext(AuthContext);
 
   const [stats, setStats] = useState(null);
-  const [deepStats, setDeepStats] = useState(null); // 🔥 Глубокая аналитика
+  const [deepStats, setDeepStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -57,7 +59,7 @@ export default function DashboardScreen() {
   const [period, setPeriod] = useState("all"); // 'all' | 'month'
 
   // =============================================================================
-  // 📡 ЗАГРУЗКА ДАННЫХ И ФИЛЬТРАЦИЯ
+  // 📡 ЗАГРУЗКА ДАННЫХ И ФИЛЬТРАЦИЯ (С ЗАЩИТОЙ И FALLBACK)
   // =============================================================================
 
   const fetchDashboardData = async (isRefresh = false, selectedPeriod = period) => {
@@ -75,15 +77,32 @@ export default function DashboardScreen() {
         // endDate можно оставить пустым, база обрежет по "сегодня"
       }
 
-      const [statsData, deepData] = await Promise.all([
-        API.getStats(startDate, endDate),
-        API.getDeepAnalytics(startDate, endDate)
-      ]);
+      const headers = await API.getHeaders();
+
+      // 🔥 АРХИТЕКТУРНЫЙ ПАТЧ: Безопасный вызов методов или прямой Fallback
+      let statsPromise;
+      if (typeof API.getDashboardStats === 'function') {
+        statsPromise = API.getDashboardStats(startDate, endDate);
+      } else {
+        statsPromise = fetch(`https://erp.yeee.kz/api/mobile/dashboard/stats?startDate=${startDate}&endDate=${endDate}`, { headers })
+          .then(res => res.json());
+      }
+
+      let deepPromise;
+      if (typeof API.getDeepAnalytics === 'function') {
+        deepPromise = API.getDeepAnalytics(startDate, endDate);
+      } else {
+        deepPromise = fetch(`https://erp.yeee.kz/api/analytics/deep?startDate=${startDate}&endDate=${endDate}`, { headers })
+          .then(res => res.json());
+      }
+
+      // Ждем оба запроса параллельно
+      const [statsData, deepData] = await Promise.all([statsPromise, deepPromise]);
 
       setStats(statsData || {});
       setDeepStats(deepData || {});
     } catch (err) {
-      setError(err.message || "Ошибка загрузки дашборда");
+      setError(err.message || "Ошибка загрузки дашборда. Проверьте соединение.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -126,9 +145,8 @@ export default function DashboardScreen() {
   const expenses = deepStats?.expenseBreakdown || [];
 
   return (
-    // 🔥 Используем обычный View, чтобы избежать двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
-      
+
       {/* 🎩 ШАПКА ЭКРАНА (Единый OLED-стиль) */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
@@ -334,7 +352,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: SIZES.radiusMd,
-    backgroundColor: "rgba(255, 107, 0, 0.1)", // Фирменный оранжевый акцент
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
     justifyContent: "center",
     alignItems: "center",
     marginRight: SIZES.medium,

@@ -1,14 +1,17 @@
 /**
  * @file src/screens/UsersScreen.js
- * @description Экран управления персоналом и доступами (PROADMIN Mobile v12.9.0 Enterprise).
+ * @description Экран управления персоналом и доступами (PROADMIN Mobile v13.4.1 Enterprise).
  * Позволяет администратору просматривать базу пользователей из Telegram-бота и менять их роли.
- * 🔥 ДОБАВЛЕНО (v12.9.0): Умный локальный поиск по базе сотрудников и рефералов.
- * ИСПРАВЛЕНО: Убран двойной отступ сверху (SafeAreaView заменен на View).
+ * 🔥 ИСПРАВЛЕНО (v13.4.1): Жесткая блокировка роли Owner. Роль удалена из списка назначения. Карточка Создателя заблокирована.
+ * 🔥 ИСПРАВЛЕНО: Фатальная ошибка импорта API (import API вместо { API }).
+ * 🔥 ИСПРАВЛЕНО: Добавлен умный Fallback для загрузки рефералов (защита от краша при отсутствии метода в api.js).
+ * ДОБАВЛЕНО: Умный локальный поиск по базе сотрудников и рефералов.
  * ДОБАВЛЕНО: Интеграция Реферальной системы. Появилась вкладка со списком рефералов.
- * ДОБАВЛЕНО: OLED Black & Orange дизайн (замена синих акцентов на оранжевые, строгие рамки).
+ * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки).
  * НИКАКИХ УДАЛЕНИЙ: Вся кастомная логика бейджей (isStaff, isOwner) и стейты сохранены на 100%.
  *
  * @module UsersScreen
+ * @version 13.4.1 (Owner Protected & Safe Referrals Edition)
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -33,19 +36,19 @@ import {
   CheckCircle,
   Radio, 
   Share2,
-  Search // Иконка поиска
+  Search
 } from "lucide-react-native";
 
-// Импорт нашей архитектуры
-import { API } from "../api/api";
-import { PeCard, PeButton, PeInput } from "../components/ui";
+import API from "../api/api";
+import { PeCard, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 
+// 🔥 АРХИТЕКТУРНЫЙ ПАТЧ: Роль "owner" удалена отсюда навсегда. 
+// Никто не сможет выдать права Создателя через приложение.
 const ROLE_OPTIONS = [
   { id: "user", label: "Клиент (user)", desc: "Только создание заявок в боте" },
   { id: "manager", label: "Мастер (manager)", desc: "Доступ к объектам и сметам" },
   { id: "admin", label: "Администратор (admin)", desc: "Полный доступ к ERP" },
-  { id: "owner", label: "Шеф (owner)", desc: "Абсолютный системный контроль" },
 ];
 
 export default function UsersScreen({ navigation }) {
@@ -58,7 +61,6 @@ export default function UsersScreen({ navigation }) {
   
   const [activeTab, setActiveTab] = useState("users"); // 'users' | 'referrals'
   
-  // 🔥 Стейт для локального поиска
   const [searchQuery, setSearchQuery] = useState("");
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -77,8 +79,16 @@ export default function UsersScreen({ navigation }) {
         const data = await API.getUsers("", 100, 0); 
         setUsers(data || []);
       } else {
-        const refData = await API.getReferralsStats();
-        setReferrals(refData || []);
+        if (typeof API.getReferralsStats === 'function') {
+          const refData = await API.getReferralsStats();
+          setReferrals(refData || []);
+        } else {
+          const headers = await API.getHeaders();
+          const res = await fetch('https://erp.yeee.kz/api/referrals/stats', { headers });
+          const rawText = await res.text();
+          const refData = rawText ? JSON.parse(rawText) : [];
+          setReferrals(Array.isArray(refData) ? refData : []);
+        }
       }
     } catch (err) {
       setError(err.message || "Ошибка загрузки базы");
@@ -97,7 +107,6 @@ export default function UsersScreen({ navigation }) {
     fetchData(true);
   }, [activeTab]);
 
-  // 🔥 ЛОКАЛЬНЫЙ ПОИСК
   const getFilteredData = () => {
     let list = activeTab === "users" ? users : referrals;
     
@@ -117,6 +126,11 @@ export default function UsersScreen({ navigation }) {
   // 🔄 ОБРАБОТЧИК СМЕНЫ РОЛИ
   // =============================================================================
   const openRoleModal = (user) => {
+    // Вторая линия защиты: даже если как-то кликнули, не открываем модалку для Owner
+    if (user.role === 'owner') {
+      Alert.alert("Отказано", "Права Создателя системы не могут быть изменены.");
+      return;
+    }
     setSelectedUser(user);
     setModalVisible(true);
   };
@@ -167,8 +181,8 @@ export default function UsersScreen({ navigation }) {
             </View>
           </View>
 
-          <View style={[styles.roleBadge, isStaff && styles.roleBadgeStaff]}>
-            <Text style={[styles.roleBadgeText, isStaff && styles.roleBadgeTextStaff]}>
+          <View style={[styles.roleBadge, isStaff && styles.roleBadgeStaff, isOwner && { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+            <Text style={[styles.roleBadgeText, isStaff && styles.roleBadgeTextStaff, isOwner && { color: COLORS.danger }]}>
               {item.role.toUpperCase()}
             </Text>
           </View>
@@ -182,13 +196,19 @@ export default function UsersScreen({ navigation }) {
             <Text style={GLOBAL_STYLES.textBody}>{item.phone || "Не указан"}</Text>
           </View>
 
+          {/* 🔥 ПЕРВАЯ ЛИНИЯ ЗАЩИТЫ: Визуальная блокировка кнопки для Owner */}
           <TouchableOpacity
-            style={[styles.editRoleBtn, isOwner && { opacity: 0.5 }]}
+            style={[
+              styles.editRoleBtn, 
+              isOwner && { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.3)' }
+            ]}
             onPress={() => openRoleModal(item)}
             disabled={isOwner} 
             activeOpacity={0.7}
           >
-            <Text style={styles.editRoleText}>Изменить права</Text>
+            <Text style={[styles.editRoleText, isOwner && { color: COLORS.danger }]}>
+              {isOwner ? "Создатель (Заблокировано)" : "Изменить права"}
+            </Text>
           </TouchableOpacity>
         </View>
       </PeCard>
@@ -232,7 +252,6 @@ export default function UsersScreen({ navigation }) {
   return (
     <View style={GLOBAL_STYLES.safeArea}>
       
-      {/* 🎩 ШАПКА ЭКРАНА С КНОПКОЙ РАССЫЛКИ */}
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
           <View style={styles.iconWrapper}>
@@ -249,7 +268,6 @@ export default function UsersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* 🎛 Вкладки переключения */}
       <View style={styles.tabsContainer}>
         <TouchableOpacity style={[styles.tabBtn, activeTab === "users" && styles.tabBtnActive]} onPress={() => setActiveTab("users")} activeOpacity={0.8}>
           <Text style={[styles.tabText, activeTab === "users" && styles.tabTextActive]}>Пользователи</Text>
@@ -259,7 +277,6 @@ export default function UsersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* 🔍 ПАНЕЛЬ ПОИСКА */}
       <View style={styles.searchContainer}>
         <PeInput
           placeholder="Поиск по ID, имени, телефону..."
@@ -270,14 +287,13 @@ export default function UsersScreen({ navigation }) {
         />
       </View>
 
-      {/* 📜 СПИСОК */}
       {error ? (
         <View style={styles.centerContainer}>
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
           </View>
           <TouchableOpacity onPress={() => fetchData()} style={{ marginTop: 10 }}>
-            <Text style={{ color: COLORS.primary }}>Повторить попытку</Text>
+            <Text style={{ color: COLORS.primary, fontWeight: '600' }}>Повторить попытку</Text>
           </TouchableOpacity>
         </View>
       ) : loading && !refreshing ? (
@@ -286,7 +302,7 @@ export default function UsersScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={getFilteredData()} // 🔥 Используем отфильтрованные данные
+          data={getFilteredData()} 
           keyExtractor={(item) => item.telegram_id.toString()}
           renderItem={activeTab === "users" ? renderUserItem : renderReferralItem}
           contentContainerStyle={styles.listContent}
@@ -305,8 +321,7 @@ export default function UsersScreen({ navigation }) {
         />
       )}
 
-      {/* 🪟 МОДАЛЬНОЕ ОКНО СМЕНЫ РОЛИ */}
-      <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
+      <Modal visible={modalVisible} animationType="fade" transparent={true} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
@@ -346,9 +361,6 @@ export default function UsersScreen({ navigation }) {
   );
 }
 
-// =============================================================================
-// 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
-// =============================================================================
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
@@ -419,7 +431,7 @@ const styles = StyleSheet.create({
     marginBottom: SIZES.medium,
     borderWidth: 1, 
     borderColor: COLORS.border,
-    backgroundColor: COLORS.surface, // Строгий OLED дизайн
+    backgroundColor: COLORS.surface, 
     borderRadius: SIZES.radiusMd,
   },
   avatar: {
@@ -470,16 +482,16 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.85)", 
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
+    width: "90%",
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: SIZES.radiusLg,
-    borderTopRightRadius: SIZES.radiusLg,
+    borderRadius: SIZES.radiusLg,
     padding: SIZES.large,
-    paddingBottom: Platform.OS === "ios" ? 40 : SIZES.large,
-    borderTopWidth: 1, 
-    borderTopColor: COLORS.border,
+    borderWidth: 1, 
+    borderColor: COLORS.border,
   },
   modalHeader: {
     flexDirection: "row",

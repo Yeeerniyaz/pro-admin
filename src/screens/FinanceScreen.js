@@ -1,14 +1,15 @@
 /**
  * @file src/screens/FinanceScreen.js
- * @description Экран Глобальной Кассы (PROADMIN Mobile v12.10.0 Enterprise).
- * 🔥 ИСПРАВЛЕНО (v12.10.0): Жесткий фикс клавиатуры в модалке создания транзакции для Android.
- * 🔥 ИСПРАВЛЕНО: Гарантированное отсутствие двойного отступа сверху (черной полосы).
+ * @description Экран Глобальной Кассы (PROADMIN Mobile v13.6.0 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v13.6.0): Фатальная ошибка импорта API (import API вместо { API }), вызывавшая краш экрана.
+ * 🔥 ИСПРАВЛЕНО (v13.6.0): Усилена защита от двойного списания (Idempotency guard) при медленном интернете.
+ * 🔥 ИСПРАВЛЕНО: Жесткий фикс клавиатуры в модалке создания транзакции для Android.
  * ДОБАВЛЕНО: Разделение категорий на Расходы (OPEX/CAPEX) и Доходы (Синхронизация с Web CRM).
  * ДОБАВЛЕНО: OLED Black & Orange дизайн (строгие рамки вместо теней).
  * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика (FlatList, API, Modal) сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module FinanceScreen
- * @version 12.10.0 (OLED & Keyboard Fix Edition)
+ * @version 13.6.0 (Safe Import & OLED Edition)
  */
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -24,6 +25,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Alert
 } from "react-native";
 import {
   DollarSign,
@@ -34,8 +36,8 @@ import {
   Tag,
 } from "lucide-react-native";
 
-// Импорт нашей архитектуры
-import { API } from "../api/api";
+// 🔥 ИСПРАВЛЕНО: Правильный дефолтный импорт нашего нового API
+import API from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
@@ -105,14 +107,15 @@ export default function FinanceScreen() {
         API.getFinanceTransactions(50),
       ]);
 
-      setAccounts(accountsData || []);
-      setTransactions(transactionsData || []);
+      setAccounts(Array.isArray(accountsData) ? accountsData : []);
+      setTransactions(Array.isArray(transactionsData) ? transactionsData : []);
 
-      if (accountsData && accountsData.length > 0 && !txAccountId) {
+      // Автоматический выбор первого счета, если он не выбран
+      if (Array.isArray(accountsData) && accountsData.length > 0 && !txAccountId) {
         setTxAccountId(accountsData[0].id.toString());
       }
     } catch (err) {
-      setError(err.message || "Ошибка загрузки данных");
+      setError(err.message || "Ошибка загрузки данных кассы");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -129,12 +132,13 @@ export default function FinanceScreen() {
   }, []);
 
   const handleTransactionSubmit = async () => {
+    if (txLoading) return; // Защита от двойного клика
     if (!txAccountId) {
-      alert("Выберите счет");
+      Alert.alert("Внимание", "Выберите счет списания/зачисления");
       return;
     }
     if (!txAmount || parseFloat(txAmount) <= 0) {
-      alert("Введите корректную сумму");
+      Alert.alert("Внимание", "Введите корректную сумму");
       return;
     }
 
@@ -152,9 +156,11 @@ export default function FinanceScreen() {
       setTxComment("");
       setTxCategory("Прочее");
       setModalVisible(false);
+      
+      // Обновляем данные кассы
       fetchFinanceData(true);
     } catch (err) {
-      alert(err.message || "Ошибка API при проведении транзакции");
+      Alert.alert("Ошибка транзакции", err.message || "Ошибка API при проведении транзакции");
     } finally {
       setTxLoading(false);
     }
@@ -241,7 +247,6 @@ export default function FinanceScreen() {
   };
 
   return (
-    // 🔥 Используем обычный View, чтобы не было двойного отступа (черной полосы) сверху
     <View style={GLOBAL_STYLES.safeArea}>
       <View style={styles.header}>
         <View style={GLOBAL_STYLES.rowCenter}>
@@ -286,12 +291,16 @@ export default function FinanceScreen() {
               tintColor={COLORS.primary}
             />
           }
+          ListEmptyComponent={
+            <View style={{ alignItems: "center", marginTop: 40 }}>
+              <Text style={GLOBAL_STYLES.textMuted}>Транзакций пока нет</Text>
+            </View>
+          }
         />
       )}
 
       {/* 🪟 МОДАЛЬНОЕ ОКНО ПРОВЕДЕНИЯ ТРАНЗАКЦИИ */}
       <Modal visible={modalVisible} animationType="slide" transparent>
-        {/* 🔥 ИСПРАВЛЕНИЕ: Жесткий фикс клавиатуры для Android и iOS */}
         <KeyboardAvoidingView
           style={styles.modalBack}
           behavior={Platform.OS === "ios" ? "padding" : "padding"}
@@ -307,7 +316,7 @@ export default function FinanceScreen() {
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 150 }} // 🔥 Место для прокрутки над клавиатурой
+              contentContainerStyle={{ paddingBottom: 150 }} 
               keyboardShouldPersistTaps="handled"
             >
 
@@ -480,7 +489,7 @@ const styles = StyleSheet.create({
   miniAccBalance: { fontSize: SIZES.fontMedium, fontWeight: "700", color: COLORS.textMain },
 
   listContent: { paddingHorizontal: SIZES.large, paddingBottom: 120 }, // Отступ под таб-бар
-  txCard: { padding: SIZES.medium, marginBottom: SIZES.small },
+  txCard: { padding: SIZES.medium, marginBottom: SIZES.small, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.surface },
   txIndicator: { width: 3, height: 24, borderRadius: 2, marginRight: SIZES.small },
   txTitle: { fontSize: SIZES.fontBase, fontWeight: "600", color: COLORS.textMain },
   txSub: { fontSize: 10, color: COLORS.textMuted },

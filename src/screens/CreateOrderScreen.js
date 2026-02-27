@@ -1,15 +1,15 @@
 /**
  * @file src/screens/CreateOrderScreen.js
- * @description Экран создания нового объекта/лида (PROADMIN Mobile v12.6.1 Enterprise).
+ * @description Экран создания нового объекта/лида (PROADMIN Mobile v13.7.0 Enterprise).
  * Позволяет администратору заводить клиентов в CRM вручную, минуя Telegram-бота.
- * При сохранении бэкенд автоматически генерирует смету (BOM) на основе площади, типа стен и тарифа.
- * 🔥 ИСПРАВЛЕНО (v12.6.1): Добавлен обязательный выбор опции "Умный дом".
- * 🔥 ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
- * ДОБАВЛЕНО: Поддержка Гибридного калькулятора — выбор типа объекта (Квартира/Дом/Коммерция).
- * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика и форма сохранены на 100%. ПОЛНЫЙ КОД.
+ * 🔥 ДОБАВЛЕНО (v13.7.0): Универсальный шлюз. Поддержка создания "Мелкого ремонта".
+ * 🔥 ДОБАВЛЕНО (v13.7.0): Динамический рендер формы и безопасный Fallback для API мелкого ремонта.
+ * ИСПРАВЛЕНО: Добавлен обязательный выбор опции "Умный дом" (из предыдущих версий).
+ * ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
+ * НИКАКИХ УДАЛЕНИЙ: Вся бизнес-логика сложного расчета (BOM) сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module CreateOrderScreen
- * @version 12.6.1 (Smart Home Toggle Edition)
+ * @version 13.7.0 (Unified Creation Gateway Edition)
  */
 
 import React, { useState } from "react";
@@ -32,56 +32,111 @@ import {
   Phone,
   Maximize,
   Home,
-  Cpu, // Иконка для Умного дома
-  CheckCircle
+  Cpu, 
+  CheckCircle,
+  Wrench,
+  AlignLeft,
+  DollarSign
 } from "lucide-react-native";
 
 // Импорт нашей архитектуры
-import { API } from "../api/api";
+import API from "../api/api";
 import { PeCard, PeButton, PeInput } from "../components/ui";
 import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
 
 export default function CreateOrderScreen({ navigation }) {
-  // Стейты формы
+  // 🔥 Глобальный переключатель типа создаваемого объекта
+  const [orderType, setOrderType] = useState("complex"); // 'complex' | 'minor'
+
+  // Общие стейты контактов
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  
+  // Стейты для КОМПЛЕКСА (Complex)
   const [area, setArea] = useState("");
   const [rooms, setRooms] = useState("2");
-  
-  // Новые параметры для Гибридного калькулятора v12
   const [propertyType, setPropertyType] = useState("apartment");
   const [wallType, setWallType] = useState("wall_concrete");
-  const [isSmartHome, setIsSmartHome] = useState(false); // 🔥 Добавлено: Состояние Умного дома
+  const [isSmartHome, setIsSmartHome] = useState(false);
+
+  // Стейты для МЕЛКОГО РЕМОНТА (Minor)
+  const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
 
   const [loading, setLoading] = useState(false);
 
   // =============================================================================
-  // 🚀 ОБРАБОТЧИК СОХРАНЕНИЯ (API)
+  // 🚀 ОБРАБОТЧИК СОХРАНЕНИЯ (API) С УМНЫМ РОУТИНГОМ
   // =============================================================================
   const handleCreateOrder = async () => {
-    // Валидация
-    if (!clientName.trim() || !clientPhone.trim() || !area.trim() || !rooms.trim()) {
-      Alert.alert("Ошибка", "Пожалуйста, заполните все обязательные поля.");
+    // 1. Валидация общих полей
+    if (!clientName.trim() || !clientPhone.trim()) {
+      Alert.alert("Ошибка", "Пожалуйста, заполните имя и телефон клиента.");
       return;
     }
 
     try {
       setLoading(true);
-      const payload = {
-        clientName: clientName.trim(),
-        clientPhone: clientPhone.trim(),
-        area: parseFloat(area),
-        rooms: parseInt(rooms, 10),
-        wallType,
-        propertyType,
-        isSmartHome, // 🔥 Передаем флаг Умного дома на бэкенд
-      };
 
-      await API.createManualOrder(payload);
+      // 🛑 ВЕТКА 1: СОЗДАНИЕ МЕЛКОГО РЕМОНТА
+      if (orderType === "minor") {
+        if (!description.trim()) {
+          Alert.alert("Ошибка", "Опишите задачу для мелкого ремонта.");
+          setLoading(false);
+          return;
+        }
 
-      Alert.alert("Успех!", "Объект успешно создан. Смета и BOM сгенерированы автоматически.", [
-        { text: "Отлично", onPress: () => navigation.goBack() }
-      ]);
+        const payload = {
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          description: description.trim(),
+          price: parseFloat(price) || 0,
+        };
+
+        // Бронежилет (Fallback) на случай отсутствия метода в api.js
+        if (typeof API.createMinorRepair === 'function') {
+          await API.createMinorRepair(payload);
+        } else {
+          const headers = await API.getHeaders();
+          const res = await fetch('https://erp.yeee.kz/api/minor-repairs', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || "Ошибка при создании вызова");
+          }
+        }
+
+        Alert.alert("Успех!", "Вызов мелкого ремонта успешно создан и отправлен на биржу.", [
+          { text: "Отлично", onPress: () => navigation.goBack() }
+        ]);
+      } 
+      // 🏗 ВЕТКА 2: СОЗДАНИЕ КОМПЛЕКСНОГО ОБЪЕКТА
+      else {
+        if (!area.trim() || !rooms.trim()) {
+          Alert.alert("Ошибка", "Для комплекса необходимо указать площадь и кол-во комнат.");
+          setLoading(false);
+          return;
+        }
+
+        const payload = {
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          area: parseFloat(area),
+          rooms: parseInt(rooms, 10),
+          wallType,
+          propertyType,
+          isSmartHome,
+        };
+
+        await API.createManualOrder(payload);
+
+        Alert.alert("Успех!", "Объект успешно создан. Смета и BOM сгенерированы автоматически.", [
+          { text: "Отлично", onPress: () => navigation.goBack() }
+        ]);
+      }
     } catch (error) {
       Alert.alert("Ошибка при создании", error.message || "Не удалось создать заказ.");
     } finally {
@@ -93,7 +148,6 @@ export default function CreateOrderScreen({ navigation }) {
   // 🖥 ГЛАВНЫЙ РЕНДЕР
   // =============================================================================
   return (
-    // 🔥 ИСПРАВЛЕНИЕ: Используем стандартный View вместо SafeAreaView для избежания двойных отступов
     <View style={GLOBAL_STYLES.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -112,11 +166,41 @@ export default function CreateOrderScreen({ navigation }) {
                 <ArrowLeft color={COLORS.textMain} size={24} />
               </TouchableOpacity>
               <View style={styles.headerTitleContainer}>
-                <Text style={GLOBAL_STYLES.h2}>Новый объект</Text>
-                <Text style={GLOBAL_STYLES.textSmall}>Оффлайн клиент</Text>
+                <Text style={GLOBAL_STYLES.h2}>Новый клиент</Text>
+                <Text style={GLOBAL_STYLES.textSmall}>Ручное добавление в CRM</Text>
               </View>
               <View style={styles.headerIcon}>
                 <PlusSquare color={COLORS.primary} size={20} />
+              </View>
+            </View>
+
+            {/* 🎛 ПЕРЕКЛЮЧАТЕЛЬ ТИПА ЗАКАЗА */}
+            <View style={{ paddingHorizontal: SIZES.large, paddingTop: SIZES.medium }}>
+              <View style={styles.typeSelector}>
+                <TouchableOpacity
+                  style={[
+                    styles.typeBtn,
+                    orderType === "complex" && styles.typeBtnActive,
+                  ]}
+                  onPress={() => setOrderType("complex")}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.typeText, orderType === "complex" && styles.typeTextActive]}>
+                    Комплекс
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.typeBtn,
+                    orderType === "minor" && styles.typeBtnActive,
+                  ]}
+                  onPress={() => setOrderType("minor")}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.typeText, orderType === "minor" && styles.typeTextActive]}>
+                    Мелкий ремонт
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -127,7 +211,7 @@ export default function CreateOrderScreen({ navigation }) {
               keyboardShouldPersistTaps="handled"
             >
 
-              {/* 🎯 БЛОК 1: КОНТАКТЫ */}
+              {/* 🎯 БЛОК 1: КОНТАКТЫ (ОБЩИЙ) */}
               <Text style={styles.sectionTitle}>1. Данные клиента</Text>
               <PeCard elevated={false} style={{ marginBottom: SIZES.large }}>
                 <PeInput
@@ -146,199 +230,174 @@ export default function CreateOrderScreen({ navigation }) {
                   keyboardType="phone-pad"
                   icon={<Phone color={COLORS.textMuted} size={18} />}
                   editable={!loading}
-                  style={{ marginBottom: 0 }} // Убираем отступ у последнего инпута
+                  style={{ marginBottom: 0 }}
                 />
               </PeCard>
 
-              {/* 🎯 БЛОК 2: ПАРАМЕТРЫ ОБЪЕКТА */}
-              <Text style={styles.sectionTitle}>2. Инженерные параметры</Text>
-              <PeCard elevated={false} style={{ marginBottom: SIZES.large }}>
-                
-                {/* 🔥 ВЫБОР ТИПА ОБЪЕКТА (ДЛЯ ТАРИФА) */}
-                <Text style={styles.inputLabel}>Тип объекта</Text>
-                <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      propertyType === "apartment" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setPropertyType("apartment")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        propertyType === "apartment" && styles.wallBtnTextActive,
-                      ]}
-                    >
-                      🏢 Квартира (Стандарт)
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      propertyType === "house" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setPropertyType("house")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        propertyType === "house" && styles.wallBtnTextActive,
-                      ]}
-                    >
-                      🏡 Частный дом / Коттедж
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      propertyType === "commercial" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setPropertyType("commercial")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        propertyType === "commercial" && styles.wallBtnTextActive,
-                      ]}
-                    >
-                      🏬 Коммерческое помещение
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* ПЛОЩАДЬ И КОМНАТЫ */}
-                <View style={styles.row}>
-                  <View style={{ flex: 1, marginRight: SIZES.small }}>
+              {/* 🎯 БЛОК 2: ДИНАМИЧЕСКИЙ РЕНДЕР ЗАВИСИМО ОТ ТИПА */}
+              {orderType === "minor" ? (
+                <>
+                  {/* ФОРМА ДЛЯ МЕЛКОГО РЕМОНТА */}
+                  <Text style={styles.sectionTitle}>2. Детали вызова</Text>
+                  <PeCard elevated={false} style={{ marginBottom: SIZES.large }}>
                     <PeInput
-                      label="Площадь (м²)"
-                      placeholder="50"
-                      value={area}
-                      onChangeText={setArea}
-                      keyboardType="numeric"
-                      icon={<Maximize color={COLORS.textMuted} size={18} />}
+                      label="Описание задачи (Что сломалось?)"
+                      placeholder="Например: Не работает розетка на кухне, выбивает автомат..."
+                      value={description}
+                      onChangeText={setDescription}
+                      multiline
+                      icon={<AlignLeft color={COLORS.textMuted} size={18} />}
                       editable={!loading}
                     />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: SIZES.small }}>
                     <PeInput
-                      label="Комнаты"
-                      placeholder="2"
-                      value={rooms}
-                      onChangeText={setRooms}
+                      label="Договорная цена (₸) - Опционально"
+                      placeholder="0 (если не указано — договорная)"
+                      value={price}
+                      onChangeText={setPrice}
                       keyboardType="numeric"
-                      icon={<Home color={COLORS.textMuted} size={18} />}
+                      icon={<DollarSign color={COLORS.textMuted} size={18} />}
                       editable={!loading}
+                      style={{ marginBottom: 0 }}
                     />
-                  </View>
-                </View>
+                  </PeCard>
+                </>
+              ) : (
+                <>
+                  {/* ФОРМА ДЛЯ КОМПЛЕКСА (ОРИГИНАЛЬНАЯ) */}
+                  <Text style={styles.sectionTitle}>2. Инженерные параметры</Text>
+                  <PeCard elevated={false} style={{ marginBottom: SIZES.large }}>
+                    
+                    {/* ВЫБОР ТИПА ОБЪЕКТА */}
+                    <Text style={styles.inputLabel}>Тип объекта</Text>
+                    <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
+                      <TouchableOpacity
+                        style={[styles.wallBtn, propertyType === "apartment" && styles.wallBtnActive]}
+                        onPress={() => setPropertyType("apartment")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, propertyType === "apartment" && styles.wallBtnTextActive]}>
+                          🏢 Квартира (Стандарт)
+                        </Text>
+                      </TouchableOpacity>
 
-                {/* ТИП СТЕН */}
-                <Text style={styles.inputLabel}>Тип стен (для штробления)</Text>
-                <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      wallType === "wall_concrete" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setWallType("wall_concrete")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        wallType === "wall_concrete" && styles.wallBtnTextActive,
-                      ]}
+                      <TouchableOpacity
+                        style={[styles.wallBtn, propertyType === "house" && styles.wallBtnActive]}
+                        onPress={() => setPropertyType("house")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, propertyType === "house" && styles.wallBtnTextActive]}>
+                          🏡 Частный дом / Коттедж
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.wallBtn, propertyType === "commercial" && styles.wallBtnActive]}
+                        onPress={() => setPropertyType("commercial")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, propertyType === "commercial" && styles.wallBtnTextActive]}>
+                          🏬 Коммерческое помещение
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* ПЛОЩАДЬ И КОМНАТЫ */}
+                    <View style={styles.row}>
+                      <View style={{ flex: 1, marginRight: SIZES.small }}>
+                        <PeInput
+                          label="Площадь (м²)"
+                          placeholder="50"
+                          value={area}
+                          onChangeText={setArea}
+                          keyboardType="numeric"
+                          icon={<Maximize color={COLORS.textMuted} size={18} />}
+                          editable={!loading}
+                        />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: SIZES.small }}>
+                        <PeInput
+                          label="Комнаты"
+                          placeholder="2"
+                          value={rooms}
+                          onChangeText={setRooms}
+                          keyboardType="numeric"
+                          icon={<Home color={COLORS.textMuted} size={18} />}
+                          editable={!loading}
+                        />
+                      </View>
+                    </View>
+
+                    {/* ТИП СТЕН */}
+                    <Text style={styles.inputLabel}>Тип стен (для штробления)</Text>
+                    <View style={[styles.wallTypeContainer, { marginBottom: SIZES.large }]}>
+                      <TouchableOpacity
+                        style={[styles.wallBtn, wallType === "wall_concrete" && styles.wallBtnActive]}
+                        onPress={() => setWallType("wall_concrete")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, wallType === "wall_concrete" && styles.wallBtnTextActive]}>
+                          Бетон / Монолит
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.wallBtn, wallType === "wall_brick" && styles.wallBtnActive]}
+                        onPress={() => setWallType("wall_brick")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, wallType === "wall_brick" && styles.wallBtnTextActive]}>
+                          Кирпич
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.wallBtn, wallType === "wall_gas" && styles.wallBtnActive]}
+                        onPress={() => setWallType("wall_gas")}
+                        activeOpacity={0.7}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.wallBtnText, wallType === "wall_gas" && styles.wallBtnTextActive]}>
+                          Газоблок / ГКЛ
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* УМНЫЙ ДОМ */}
+                    <Text style={styles.inputLabel}>Дополнительные опции</Text>
+                    <TouchableOpacity
+                      style={[styles.smartHomeBtn, isSmartHome && styles.smartHomeBtnActive]}
+                      onPress={() => setIsSmartHome(!isSmartHome)}
+                      activeOpacity={0.7}
+                      disabled={loading}
                     >
-                      Бетон / Монолит
-                    </Text>
-                  </TouchableOpacity>
+                      <View style={GLOBAL_STYLES.rowCenter}>
+                        <Cpu 
+                          color={isSmartHome ? COLORS.primary : COLORS.textMuted} 
+                          size={20} 
+                          style={{ marginRight: 12 }} 
+                        />
+                        <Text style={[styles.smartHomeText, isSmartHome && styles.smartHomeTextActive]}>
+                          Система «Умный дом»
+                        </Text>
+                      </View>
+                      {isSmartHome && (
+                        <CheckCircle color={COLORS.primary} size={20} />
+                      )}
+                    </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      wallType === "wall_brick" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setWallType("wall_brick")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        wallType === "wall_brick" && styles.wallBtnTextActive,
-                      ]}
-                    >
-                      Кирпич
-                    </Text>
-                  </TouchableOpacity>
+                  </PeCard>
+                </>
+              )}
 
-                  <TouchableOpacity
-                    style={[
-                      styles.wallBtn,
-                      wallType === "wall_gas" && styles.wallBtnActive,
-                    ]}
-                    onPress={() => setWallType("wall_gas")}
-                    activeOpacity={0.7}
-                    disabled={loading}
-                  >
-                    <Text
-                      style={[
-                        styles.wallBtnText,
-                        wallType === "wall_gas" && styles.wallBtnTextActive,
-                      ]}
-                    >
-                      Газоблок / ГКЛ
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* 🔥 УМНЫЙ ДОМ (НОВОЕ) */}
-                <Text style={styles.inputLabel}>Дополнительные опции</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.smartHomeBtn,
-                    isSmartHome && styles.smartHomeBtnActive,
-                  ]}
-                  onPress={() => setIsSmartHome(!isSmartHome)}
-                  activeOpacity={0.7}
-                  disabled={loading}
-                >
-                  <View style={GLOBAL_STYLES.rowCenter}>
-                    <Cpu 
-                      color={isSmartHome ? COLORS.primary : COLORS.textMuted} 
-                      size={20} 
-                      style={{ marginRight: 12 }} 
-                    />
-                    <Text
-                      style={[
-                        styles.smartHomeText,
-                        isSmartHome && styles.smartHomeTextActive,
-                      ]}
-                    >
-                      Система «Умный дом»
-                    </Text>
-                  </View>
-                  {isSmartHome && (
-                    <CheckCircle color={COLORS.primary} size={20} />
-                  )}
-                </TouchableOpacity>
-
-              </PeCard>
-
-              {/* 🔘 КНОПКА СОЗДАНИЯ */}
+              {/* 🔘 КНОПКА СОЗДАНИЯ (Динамический текст) */}
               <PeButton
-                title="Сгенерировать объект и смету"
-                icon={<PlusSquare color={COLORS.textInverse} size={20} />}
+                title={orderType === "minor" ? "Создать вызов на бирже" : "Сгенерировать объект и смету"}
+                icon={orderType === "minor" ? <Wrench color={COLORS.textInverse} size={20} /> : <PlusSquare color={COLORS.textInverse} size={20} />}
                 onPress={handleCreateOrder}
                 loading={loading}
                 style={{ marginTop: SIZES.medium, marginBottom: 40 }}
@@ -382,6 +441,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  
+  // Переключатель типов
+  typeSelector: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: SIZES.radiusSm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 4,
+  },
+  typeBtn: {
+    flex: 1,
+    paddingVertical: SIZES.medium,
+    alignItems: "center",
+    borderRadius: SIZES.radiusSm,
+  },
+  typeBtnActive: {
+    backgroundColor: "rgba(255, 107, 0, 0.15)", // Оранжевый OLED
+    borderColor: COLORS.primary,
+  },
+  typeText: {
+    fontWeight: "700",
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    fontSize: SIZES.fontSmall,
+  },
+  typeTextActive: {
+    color: COLORS.primary,
+  },
+
   scrollContent: {
     padding: SIZES.large,
   },
@@ -417,7 +506,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   wallBtnActive: {
-    backgroundColor: "rgba(255, 107, 0, 0.15)", // Оранжевый OLED
+    backgroundColor: "rgba(255, 107, 0, 0.15)",
     borderColor: COLORS.primary,
   },
   wallBtnText: {
@@ -429,7 +518,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
   
-  // 🔥 Стили для кнопки Умного дома
   smartHomeBtn: {
     flexDirection: 'row',
     justifyContent: 'space-between',

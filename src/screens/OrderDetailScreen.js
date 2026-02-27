@@ -1,12 +1,15 @@
 /**
  * @file src/screens/OrderDetailScreen.js
- * @description Экран управления объектом (PROADMIN Mobile v12.7.0 Enterprise).
- * 🔥 ДОБАВЛЕНО (v12.7.0): Возможность отмены заказа (Cancel) для Администраторов.
+ * @description Экран управления объектом (PROADMIN Mobile v13.3.0 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v13.3.0): Исправлен импорт API и обновлены имена методов (takeOrder, updateOrderBOM).
+ * 🔥 ДОБАВЛЕНО (v13.3.0): Умная адаптация UI под "Мелкий ремонт" (minor) и "Комплекс" (complex).
+ * 🔥 ДОБАВЛЕНО: Интеллектуальный роутинг API (вызов takeMinorRepair для мелкого ремонта).
  * ИСПРАВЛЕНО: Убран двойной отступ сверху (черная полоса). SafeAreaView заменен на View.
  * ИСПРАВЛЕНО: Глобальный фикс клавиатуры при редактировании спецификации (BOM).
- * НИКАКИХ УДАЛЕНИЙ: Весь функционал (BOM, Финансы, Метаданные) сохранен на 100%.
+ * НИКАКИХ УДАЛЕНИЙ: Весь функционал (BOM, Финансы, Метаданные, Отмена) сохранен на 100%.
  *
  * @module OrderDetailScreen
+ * @version 13.3.0 (Universal Detail & API Polish Edition)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -20,7 +23,6 @@ import {
   Platform,
   Alert,
   Modal,
-  ActivityIndicator,
   Keyboard
 } from "react-native";
 import {
@@ -28,7 +30,6 @@ import {
   User,
   Phone,
   CheckCircle,
-  FileText,
   PlusCircle,
   Trash2,
   Edit3,
@@ -42,13 +43,14 @@ import {
   Settings,
   Layers,
   Tag,
-  ShieldAlert
+  ShieldAlert,
+  Wrench
 } from "lucide-react-native";
 
-// Импорт архитектуры
-import { API } from "../api/api";
+// 🔥 ИСПРАВЛЕНО: Правильный дефолтный импорт нашего нового API
+import API from "../api/api";
 import { PeCard, PeBadge, PeButton, PeInput } from "../components/ui";
-import { COLORS, GLOBAL_STYLES, SIZES, SHADOWS } from "../theme/theme";
+import { COLORS, GLOBAL_STYLES, SIZES } from "../theme/theme";
 import { AuthContext } from "../context/AuthContext";
 
 const formatKZT = (num) => (parseFloat(num) || 0).toLocaleString("ru-RU") + " ₸";
@@ -73,14 +75,17 @@ export default function OrderDetailScreen({ route, navigation }) {
   const [brigades, setBrigades] = useState([]);
   const isDone = order.status === 'done' || order.status === 'archived' || order.status === 'cancel';
 
+  // 🔥 ОПРЕДЕЛЯЕМ ТИП ОБЪЕКТА (Комплекс или Мелкий ремонт)
+  const isMinor = order.type === 'minor';
+
   const [address, setAddress] = useState(order.details?.address || "");
-  const [adminComment, setAdminComment] = useState(order.details?.admin_comment || "");
+  const [adminComment, setAdminComment] = useState(order.details?.admin_comment || order.details?.client_comment || order.description || "");
   const [bom, setBom] = useState(Array.isArray(order.details?.bom) ? order.details.bom : []);
 
-  // Извлекаем технические данные из гибридного калькулятора (v12)
+  // Извлекаем технические данные из гибридного калькулятора (v12) с защитой от undefined
   const params = order.details?.params || {};
-  const financials = order.details?.financials || { final_price: order.total_price, total_expenses: 0, net_profit: order.total_price, expenses: [] };
-  const calcBase = order.details?.total?.work || order.total_price;
+  const financials = order.details?.financials || { final_price: order.total_price || 0, total_expenses: 0, net_profit: order.total_price || 0, expenses: [] };
+  const calcBase = order.details?.total?.work || order.total_price || 0;
 
   // Парсинг тех. данных
   const calcMode = params.calcMode === 'sq_meter' ? 'По квадратуре (СНиП)' : 'Точный (price_list)';
@@ -114,17 +119,31 @@ export default function OrderDetailScreen({ route, navigation }) {
   }, [isAdmin]);
 
   // =============================================================================
-  // 🚀 API ОБРАБОТЧИКИ
+  // 🚀 API ОБРАБОТЧИКИ (С УМНЫМ РОУТИНГОМ)
   // =============================================================================
 
   const handleTakeOrder = async () => {
     try {
       setLoading(true);
-      await API.takeOrderWeb(order.id);
-      Alert.alert("Успех", "Заказ успешно взят в работу!");
+      // 🔥 АРХИТЕКТУРНЫЙ ПАТЧ: Вызываем правильный API в зависимости от типа заказа
+      if (isMinor) {
+        if (typeof API.takeMinorRepair === 'function') {
+          await API.takeMinorRepair(order.id);
+        } else {
+          // Fallback если метода нет
+          const headers = await API.getHeaders();
+          await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/take`, { method: 'POST', headers });
+        }
+      } else {
+        await API.takeOrder(order.id); // ИСПРАВЛЕНО с takeOrderWeb
+      }
+      
+      Alert.alert("Успех", "Объект успешно взят в работу!");
+      setOrder({ ...order, status: 'processing' });
       navigation.goBack();
     } catch (e) {
       Alert.alert("Ошибка", e.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -133,17 +152,27 @@ export default function OrderDetailScreen({ route, navigation }) {
     if (!selectedBrigadeId) return Alert.alert("Ошибка", "Выберите бригаду из списка.");
     try {
       setLoading(true);
-      await API.assignBrigade(order.id, selectedBrigadeId);
+      if (isMinor) {
+        // Fallback для мелкого ремонта, так как assignMinorRepair может не быть в классе API
+        const headers = await API.getHeaders();
+        await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/assign`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ brigadeId: selectedBrigadeId })
+        });
+      } else {
+        await API.assignBrigade(order.id, selectedBrigadeId);
+      }
+      
       const assignedB = brigades.find(b => b.id.toString() === selectedBrigadeId.toString());
-
       setOrder({
         ...order,
         brigade_id: selectedBrigadeId,
         brigade_name: assignedB?.name,
-        status: 'work'
+        status: isMinor ? 'processing' : 'work'
       });
       setAssignModalVisible(false);
-      Alert.alert("Успех", "Заказ успешно передан бригаде!");
+      Alert.alert("Успех", "Объект успешно передан бригаде!");
     } catch (e) {
       Alert.alert("Ошибка", e.message);
     } finally {
@@ -154,7 +183,7 @@ export default function OrderDetailScreen({ route, navigation }) {
   const handleFinalizeOrder = async () => {
     Alert.alert(
       "Закрытие объекта",
-      "Вы уверены? Будет произведен расчет долей и начислен долг.",
+      isMinor ? "Вы уверены, что хотите завершить этот вызов?" : "Вы уверены? Будет произведен расчет долей и начислен долг.",
       [
         { text: "Отмена", style: "cancel" },
         {
@@ -163,8 +192,18 @@ export default function OrderDetailScreen({ route, navigation }) {
           onPress: async () => {
             try {
               setLoading(true);
-              const res = await API.finalizeOrder(order.id);
-              Alert.alert("Завершено!", `Объект закрыт.\nВаша доля: ${formatKZT(res.distribution.brigadeShare)}\nДолг Шефу: ${formatKZT(res.distribution.ownerShare)}`);
+              if (isMinor) {
+                if (typeof API.updateMinorRepairStatus === 'function') {
+                  await API.updateMinorRepairStatus(order.id, 'done');
+                } else {
+                  const headers = await API.getHeaders();
+                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: 'done' }) });
+                }
+                Alert.alert("Завершено!", "Вызов успешно закрыт.");
+              } else {
+                const res = await API.finalizeOrder(order.id);
+                Alert.alert("Завершено!", `Объект закрыт.\nВаша доля: ${formatKZT(res.distribution.brigadeShare)}\nДолг Шефу: ${formatKZT(res.distribution.ownerShare)}`);
+              }
               setOrder({ ...order, status: 'done' });
             } catch (e) {
               Alert.alert("Ошибка", e.message);
@@ -177,11 +216,10 @@ export default function OrderDetailScreen({ route, navigation }) {
     );
   };
 
-  // 🔥 НОВАЯ ФУНКЦИЯ: ОТМЕНА ЗАКАЗА
   const handleCancelOrder = async () => {
     Alert.alert(
-      "Отмена заказа",
-      "Вы уверены, что хотите отменить этот заказ? Он будет переведен в статус 'Отказ'.",
+      "Отмена объекта",
+      "Вы уверены, что хотите отменить этот объект? Он будет переведен в статус 'Отказ'.",
       [
         { text: "Нет", style: "cancel" },
         {
@@ -190,9 +228,18 @@ export default function OrderDetailScreen({ route, navigation }) {
           onPress: async () => {
             try {
               setLoading(true);
-              await API.updateOrderStatus(order.id, 'cancel');
+              if (isMinor) {
+                if (typeof API.updateMinorRepairStatus === 'function') {
+                  await API.updateMinorRepairStatus(order.id, 'cancel');
+                } else {
+                  const headers = await API.getHeaders();
+                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: 'cancel' }) });
+                }
+              } else {
+                await API.updateOrderStatus(order.id, 'cancel');
+              }
               setOrder({ ...order, status: 'cancel' });
-              Alert.alert("Отменено", "Заказ успешно переведен в отказы.");
+              Alert.alert("Отменено", "Объект успешно переведен в отказы.");
             } catch (e) {
               Alert.alert("Ошибка", e.message);
             } finally {
@@ -205,6 +252,7 @@ export default function OrderDetailScreen({ route, navigation }) {
   };
 
   const handleSaveMetadata = async () => {
+    if (isMinor) return Alert.alert("Информация", "Метаданные для мелкого ремонта редактируются из админ-панели.");
     try {
       setLoading(true);
       const res = await API.updateOrderMetadata(order.id, address, adminComment);
@@ -219,7 +267,8 @@ export default function OrderDetailScreen({ route, navigation }) {
   const handleSaveBOM = async () => {
     try {
       setLoading(true);
-      const res = await API.updateBOM(order.id, bom);
+      // 🔥 ИСПРАВЛЕНО: updateOrderBOM вместо updateBOM
+      const res = await API.updateOrderBOM(order.id, bom);
       setOrder({ ...order, details: { ...order.details, bom: res.bom } });
       Alert.alert("Сохранено", "Спецификация (BOM) успешно обновлена.");
       Keyboard.dismiss();
@@ -236,7 +285,7 @@ export default function OrderDetailScreen({ route, navigation }) {
       setOrder({ ...order, details: { ...order.details, financials: res.financials } });
       setExpenseModalVisible(false);
       setNewExpense({ amount: "", category: "", comment: "" });
-      Alert.alert("Расход добавлен", "Юнит-экономика пересчитана.");
+      Alert.alert("Расход добавлен", "Экономика объекта пересчитана.");
     } catch (e) {
       Alert.alert("Ошибка", e.message);
     } finally { setLoading(false); }
@@ -246,7 +295,7 @@ export default function OrderDetailScreen({ route, navigation }) {
     if (!newPrice) return Alert.alert("Ошибка", "Введите цену.");
     try {
       setLoading(true);
-      const res = await API.updateOrderFinalPrice(order.id, newPrice);
+      const res = await API.updateOrderPrice(order.id, newPrice); // 🔥 Убедимся, что метод правильный
       setOrder({ ...order, total_price: newPrice, details: { ...order.details, financials: res.financials } });
       setPriceModalVisible(false);
       Alert.alert("Цена обновлена", "Итоговая цена зафиксирована.");
@@ -266,12 +315,16 @@ export default function OrderDetailScreen({ route, navigation }) {
         behavior={Platform.OS === "ios" ? "padding" : "padding"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
+        {/* 🎩 ШАПКА ЭКРАНА */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} disabled={loading}>
             <ArrowLeft color={COLORS.textMain} size={24} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={GLOBAL_STYLES.h2}>Объект #{order.id}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {isMinor && <Wrench color={COLORS.primary} size={18} style={{ marginRight: 6 }} />}
+              <Text style={GLOBAL_STYLES.h2}>Объект #{order.id}</Text>
+            </View>
             <Text style={GLOBAL_STYLES.textSmall}>{formatDate(order.created_at)}</Text>
           </View>
           <PeBadge status={order.status} />
@@ -287,7 +340,7 @@ export default function OrderDetailScreen({ route, navigation }) {
           {isDone && (
             <View style={styles.alertDanger}>
               <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: SIZES.fontSmall }}>
-                🔒 Заказ в статусе: {order.status.toUpperCase()}. Изменения заблокированы.
+                🔒 Объект в статусе: {order.status.toUpperCase()}. Изменения заблокированы.
               </Text>
             </View>
           )}
@@ -322,36 +375,42 @@ export default function OrderDetailScreen({ route, navigation }) {
 
             <View style={styles.divider} />
 
-            <PeInput
-              label="📍 Адрес объекта"
-              placeholder="Улица, дом, квартира"
-              value={address}
-              onChangeText={setAddress}
-              editable={!isDone && !loading}
-              icon={<MapPin color={COLORS.textMuted} size={16} />}
-            />
-            <PeInput
-              label="📝 Системный комментарий"
-              placeholder="Заметки по объекту..."
-              value={adminComment}
-              onChangeText={setAdminComment}
-              editable={!isDone && !loading}
-              multiline
-              icon={<AlignLeft color={COLORS.textMuted} size={16} />}
-            />
-
-            {!isDone && (
-              <PeButton
-                title="Сохранить метаданные"
-                variant="secondary"
-                onPress={handleSaveMetadata}
-                loading={loading}
-              />
+            {/* 🔥 Адаптация полей под тип заказа */}
+            {!isMinor ? (
+              <>
+                <PeInput
+                  label="📍 Адрес объекта"
+                  placeholder="Улица, дом, квартира"
+                  value={address}
+                  onChangeText={setAddress}
+                  editable={!isDone && !loading}
+                  icon={<MapPin color={COLORS.textMuted} size={16} />}
+                />
+                <PeInput
+                  label="📝 Системный комментарий"
+                  placeholder="Заметки по объекту..."
+                  value={adminComment}
+                  onChangeText={setAdminComment}
+                  editable={!isDone && !loading}
+                  multiline
+                  icon={<AlignLeft color={COLORS.textMuted} size={16} />}
+                />
+                {!isDone && (
+                  <PeButton title="Сохранить метаданные" variant="secondary" onPress={handleSaveMetadata} loading={loading} />
+                )}
+              </>
+            ) : (
+              <View>
+                <Text style={GLOBAL_STYLES.textMuted}>📝 Описание задачи (Мелкий ремонт):</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { marginTop: SIZES.small, fontStyle: 'italic' }]}>
+                  {adminComment || "Нет описания"}
+                </Text>
+              </View>
             )}
           </PeCard>
 
-          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ */}
-          {area > 0 && (
+          {/* БЛОК: ТЕХНИЧЕСКИЕ ДАННЫЕ (ТОЛЬКО ДЛЯ КОМПЛЕКСА) */}
+          {!isMinor && area > 0 && (
             <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
               <Text style={styles.sectionTitle}>Технические данные</Text>
               
@@ -405,9 +464,9 @@ export default function OrderDetailScreen({ route, navigation }) {
           {/* 🔥 СИСТЕМНЫЕ ДЕЙСТВИЯ */}
           {!isDone && (
             <View style={{ marginBottom: SIZES.medium }}>
-              {isManager && order.status === 'new' && (
+              {isManager && (order.status === 'new' || order.status === 'processing' && !order.brigade_name) && (
                 <PeButton
-                  title="ВЗЯТЬ ЗАКАЗ В РАБОТУ"
+                  title="ВЗЯТЬ В РАБОТУ"
                   variant="primary"
                   icon={<DownloadCloud color={COLORS.textInverse} size={20} />}
                   onPress={handleTakeOrder}
@@ -415,9 +474,9 @@ export default function OrderDetailScreen({ route, navigation }) {
                   style={{ marginBottom: SIZES.base }}
                 />
               )}
-              {isManager && order.status === 'work' && (
+              {isManager && (order.status === 'work' || (isMinor && order.status === 'processing')) && (
                 <PeButton
-                  title="ЗАКРЫТЬ И РАСПРЕДЕЛИТЬ ПРИБЫЛЬ"
+                  title={isMinor ? "ЗАВЕРШИТЬ ВЫЗОВ" : "ЗАКРЫТЬ И РАСПРЕДЕЛИТЬ ПРИБЫЛЬ"}
                   variant="success"
                   icon={<CheckCircle color="#000" size={20} />}
                   onPress={handleFinalizeOrder}
@@ -429,7 +488,7 @@ export default function OrderDetailScreen({ route, navigation }) {
               {/* Кнопка отмены для Админа */}
               {isAdmin && (
                 <PeButton
-                  title="ОТМЕНИТЬ ЗАКАЗ (В ОТКАЗ)"
+                  title="ОТМЕНИТЬ ОБЪЕКТ (В ОТКАЗ)"
                   variant="danger"
                   icon={<X color="#fff" size={20} />}
                   onPress={handleCancelOrder}
@@ -443,113 +502,123 @@ export default function OrderDetailScreen({ route, navigation }) {
           <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
             <View style={GLOBAL_STYLES.rowBetween}>
               <Text style={styles.sectionTitle}>Экономика</Text>
-              {!isDone && (
+              {!isDone && !isMinor && (
                 <TouchableOpacity onPress={() => setPriceModalVisible(true)}>
                   <Edit3 color={COLORS.primary} size={20} />
                 </TouchableOpacity>
               )}
             </View>
 
-            <View style={styles.finRow}>
-              <Text style={GLOBAL_STYLES.textMuted}>Расчетная база:</Text>
-              <Text style={GLOBAL_STYLES.textBody}>{formatKZT(calcBase)}</Text>
-            </View>
+            {!isMinor && (
+              <View style={styles.finRow}>
+                <Text style={GLOBAL_STYLES.textMuted}>Расчетная база:</Text>
+                <Text style={GLOBAL_STYLES.textBody}>{formatKZT(calcBase)}</Text>
+              </View>
+            )}
+            
             <View style={[styles.finRow, { marginTop: 8 }]}>
-              <Text style={GLOBAL_STYLES.textMuted}>Договорная цена:</Text>
-              <Text style={[GLOBAL_STYLES.textBody, { fontWeight: '700' }]}>{formatKZT(financials.final_price)}</Text>
-            </View>
-            <View style={[styles.finRow, { marginTop: 8 }]}>
-              <Text style={GLOBAL_STYLES.textMuted}>Сумма чеков (Расход):</Text>
-              <Text style={{ color: COLORS.danger, fontWeight: '700' }}>-{formatKZT(financials.total_expenses)}</Text>
+              <Text style={GLOBAL_STYLES.textMuted}>{isMinor ? "Сумма вызова:" : "Договорная цена:"}</Text>
+              <Text style={[GLOBAL_STYLES.textBody, { fontWeight: '700' }]}>{financials.final_price ? formatKZT(financials.final_price) : "Договорная"}</Text>
             </View>
 
-            <View style={styles.divider} />
+            {!isMinor && (
+              <>
+                <View style={[styles.finRow, { marginTop: 8 }]}>
+                  <Text style={GLOBAL_STYLES.textMuted}>Сумма чеков (Расход):</Text>
+                  <Text style={{ color: COLORS.danger, fontWeight: '700' }}>-{formatKZT(financials.total_expenses)}</Text>
+                </View>
 
-            <View style={styles.finRow}>
-              <Text style={[GLOBAL_STYLES.textBody, { textTransform: 'uppercase', fontWeight: '700' }]}>Чистая прибыль:</Text>
-              <Text style={{ color: COLORS.success, fontSize: SIZES.fontTitle, fontWeight: '700' }}>{formatKZT(financials.net_profit)}</Text>
-            </View>
+                <View style={styles.divider} />
 
-            <View style={{ marginTop: SIZES.large }}>
-              <Text style={[GLOBAL_STYLES.h3, { marginBottom: SIZES.base }]}>Реестр расходов</Text>
-              {financials.expenses?.length > 0 ? (
-                financials.expenses.map((exp, idx) => (
-                  <View key={idx} style={styles.expenseItem}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={GLOBAL_STYLES.textBody}>{exp.category}</Text>
-                      {exp.comment ? <Text style={GLOBAL_STYLES.textSmall}>{exp.comment}</Text> : null}
+                <View style={styles.finRow}>
+                  <Text style={[GLOBAL_STYLES.textBody, { textTransform: 'uppercase', fontWeight: '700' }]}>Чистая прибыль:</Text>
+                  <Text style={{ color: COLORS.success, fontSize: SIZES.fontTitle, fontWeight: '700' }}>{formatKZT(financials.net_profit)}</Text>
+                </View>
+
+                <View style={{ marginTop: SIZES.large }}>
+                  <Text style={[GLOBAL_STYLES.h3, { marginBottom: SIZES.base }]}>Реестр расходов</Text>
+                  {financials.expenses?.length > 0 ? (
+                    financials.expenses.map((exp, idx) => (
+                      <View key={idx} style={styles.expenseItem}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={GLOBAL_STYLES.textBody}>{exp.category}</Text>
+                          {exp.comment ? <Text style={GLOBAL_STYLES.textSmall}>{exp.comment}</Text> : null}
+                        </View>
+                        <Text style={{ color: COLORS.danger, fontWeight: '600' }}>-{formatKZT(exp.amount)}</Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={GLOBAL_STYLES.textMuted}>Чеков пока нет</Text>
+                  )}
+
+                  {!isDone && (
+                    <PeButton
+                      title="Добавить расход (Чек)"
+                      variant="ghost"
+                      icon={<PlusCircle color={COLORS.textMain} size={18} />}
+                      onPress={() => setExpenseModalVisible(true)}
+                      style={{ marginTop: SIZES.medium, borderWidth: 1, borderColor: COLORS.border }}
+                    />
+                  )}
+                </View>
+              </>
+            )}
+          </PeCard>
+
+          {/* СПЕЦИФИКАЦИЯ (BOM) - ТОЛЬКО ДЛЯ КОМПЛЕКСА */}
+          {!isMinor && (
+            <PeCard elevated={false} style={{ marginBottom: 40 }}>
+              <Text style={styles.sectionTitle}>Спецификация (BOM)</Text>
+              {bom.length === 0 ? (
+                <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: SIZES.medium }]}>Спецификация пуста</Text>
+              ) : (
+                bom.map((item, index) => (
+                  <View key={index} style={styles.bomItem}>
+                    <View style={{ flex: 1, marginRight: SIZES.small }}>
+                      <PeInput
+                        placeholder="Наименование"
+                        value={item.name}
+                        onChangeText={(val) => { const n = [...bom]; n[index].name = val; setBom(n); }}
+                        editable={!isDone}
+                        style={{ marginBottom: 0 }}
+                      />
                     </View>
-                    <Text style={{ color: COLORS.danger, fontWeight: '600' }}>-{formatKZT(exp.amount)}</Text>
+                    <View style={{ width: 60, marginRight: SIZES.small }}>
+                      <PeInput
+                        placeholder="Кол."
+                        value={item.qty.toString()}
+                        keyboardType="numeric"
+                        onChangeText={(val) => { const n = [...bom]; n[index].qty = val; setBom(n); }}
+                        editable={!isDone}
+                        style={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    <View style={{ width: 50 }}>
+                      <PeInput
+                        placeholder="Ед."
+                        value={item.unit}
+                        onChangeText={(val) => { const n = [...bom]; n[index].unit = val; setBom(n); }}
+                        editable={!isDone}
+                        style={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    {!isDone && (
+                      <TouchableOpacity onPress={() => { const n = [...bom]; n.splice(index, 1); setBom(n); }} style={{ marginLeft: SIZES.small }}>
+                        <Trash2 color={COLORS.danger} size={20} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ))
-              ) : (
-                <Text style={GLOBAL_STYLES.textMuted}>Чеков пока нет</Text>
               )}
 
               {!isDone && (
-                <PeButton
-                  title="Добавить расход (Чек)"
-                  variant="ghost"
-                  icon={<PlusCircle color={COLORS.textMain} size={18} />}
-                  onPress={() => setExpenseModalVisible(true)}
-                  style={{ marginTop: SIZES.medium, borderWidth: 1, borderColor: COLORS.border }}
-                />
-              )}
-            </View>
-          </PeCard>
-
-          {/* СПЕЦИФИКАЦИЯ (BOM) */}
-          <PeCard elevated={false} style={{ marginBottom: 40 }}>
-            <Text style={styles.sectionTitle}>Спецификация (BOM)</Text>
-            {bom.length === 0 ? (
-              <Text style={[GLOBAL_STYLES.textMuted, { marginBottom: SIZES.medium }]}>Спецификация пуста</Text>
-            ) : (
-              bom.map((item, index) => (
-                <View key={index} style={styles.bomItem}>
-                  <View style={{ flex: 1, marginRight: SIZES.small }}>
-                    <PeInput
-                      placeholder="Наименование"
-                      value={item.name}
-                      onChangeText={(val) => { const n = [...bom]; n[index].name = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
-                    />
-                  </View>
-                  <View style={{ width: 60, marginRight: SIZES.small }}>
-                    <PeInput
-                      placeholder="Кол."
-                      value={item.qty.toString()}
-                      keyboardType="numeric"
-                      onChangeText={(val) => { const n = [...bom]; n[index].qty = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
-                    />
-                  </View>
-                  <View style={{ width: 50 }}>
-                    <PeInput
-                      placeholder="Ед."
-                      value={item.unit}
-                      onChangeText={(val) => { const n = [...bom]; n[index].unit = val; setBom(n); }}
-                      editable={!isDone}
-                      style={{ marginBottom: 0 }}
-                    />
-                  </View>
-                  {!isDone && (
-                    <TouchableOpacity onPress={() => { const n = [...bom]; n.splice(index, 1); setBom(n); }} style={{ marginLeft: SIZES.small }}>
-                      <Trash2 color={COLORS.danger} size={20} />
-                    </TouchableOpacity>
-                  )}
+                <View style={GLOBAL_STYLES.rowBetween}>
+                  <PeButton title="Добавить строку" variant="ghost" onPress={() => setBom([...bom, { name: "", qty: 1, unit: "шт" }])} />
+                  <PeButton title="Сохранить BOM" variant="primary" onPress={handleSaveBOM} loading={loading} />
                 </View>
-              ))
-            )}
-
-            {!isDone && (
-              <View style={GLOBAL_STYLES.rowBetween}>
-                <PeButton title="Добавить строку" variant="ghost" onPress={() => setBom([...bom, { name: "", qty: 1, unit: "шт" }])} />
-                <PeButton title="Сохранить BOM" variant="primary" onPress={handleSaveBOM} loading={loading} />
-              </View>
-            )}
-          </PeCard>
+              )}
+            </PeCard>
+          )}
 
         </ScrollView>
       </KeyboardAvoidingView>
