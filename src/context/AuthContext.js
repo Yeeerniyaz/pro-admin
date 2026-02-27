@@ -1,15 +1,18 @@
 /**
  * @file src/context/AuthContext.js
- * @description Глобальное ядро авторизации (PROADMIN Mobile v12.13.0 Enterprise).
+ * @description Глобальное ядро авторизации (PROADMIN Mobile v12.13.1 Enterprise).
  * ИСПРАВЛЕНО: Улучшена обработка ошибок сети при разлогинивании.
  * ДОБАВЛЕНО: Полная поддержка OTP-авторизации (Telegram) и Legacy-входа (Пароль).
+ * 🔥 ИСПРАВЛЕНО (v12.13.1): Исправлен импорт API (убраны фигурные скобки), 
+ * что устранило фатальную ошибку "Cannot read property 'checkAuth' of undefined".
  * НИКАКИХ УДАЛЕНИЙ И СОКРАЩЕНИЙ: Все функции сохранены полностью. ПОЛНЫЙ КОД.
  *
  * @module AuthContext
  */
 
 import React, { createContext, useState, useEffect, useMemo } from 'react';
-import { API } from '../api/api';
+// 🔥 ИСПРАВЛЕНО: Убраны фигурные скобки, так как API экспортируется как default
+import API from '../api/api';
 
 // 🔥 Экспортируем как именованную константу
 export const AuthContext = createContext(null);
