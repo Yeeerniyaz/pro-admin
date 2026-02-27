@@ -1,16 +1,15 @@
 /**
  * @file src/screens/OrdersScreen.js
- * @description Экран реестра объектов (PROADMIN Mobile v14.0.0 Enterprise).
+ * @description Экран реестра объектов (PROADMIN Mobile v14.1.0 Enterprise).
  * Выводит список заказов с пагинацией, фильтрацией по статусу и оптимизированным рендерингом.
- * 🔥 ДОБАВЛЕНО (v14.0.0): Жесткий RBAC. Вкладка "Звонки" скрыта от Бригадиров.
- * 🔥 ДОБАВЛЕНО (v14.0.0): Механика захвата вызова. Бригадиры могут брать мелкий ремонт прямо из списка.
- * 🔥 ДОБАВЛЕНО: Бригадиры теперь могут менять статус мелкого ремонта.
- * ИСПРАВЛЕНО: Фатальная ошибка импорта (import API вместо { API }).
- * ИСПРАВЛЕНО: Внедрена интеллектуальная загрузка. getOrders питает сразу 2 вкладки (Комплекс и Мелкий).
+ * 🔥 ИСПРАВЛЕНО (v14.1.0): Разблокированы фильтры статусов (Новые, Завершенные и т.д.) для Мелкого ремонта.
+ * 🔥 ИСПРАВЛЕНО (v14.1.0): Карточки Мелкого ремонта теперь кликабельны и ведут в детальный просмотр.
+ * ДОБАВЛЕНО: Жесткий RBAC. Вкладка "Звонки" скрыта от Бригадиров.
+ * ДОБАВЛЕНО: Механика захвата вызова. Бригадиры могут брать мелкий ремонт прямо из списка.
  * НИКАКИХ УДАЛЕНИЙ: Вся оригинальная логика FlatList и модалок сохранена на 100%. ПОЛНЫЙ КОД.
  *
  * @module OrdersScreen
- * @version 14.0.0 (RBAC & Quick Take Edition)
+ * @version 14.1.0 (Full Filters & Clickable Minor Edition)
  */
 
 import React, { useState, useEffect, useCallback, useContext } from "react";
@@ -87,7 +86,6 @@ export default function OrdersScreen({ navigation }) {
 
   const [searchQuery, setSearchQuery] = useState("");
 
-  // 🔥 Добавлен currentStatus для понимания контекста (Новый или В работе)
   const [statusModal, setStatusModal] = useState({ visible: false, id: null, type: null, currentStatus: null });
 
   // =============================================================================
@@ -107,7 +105,7 @@ export default function OrdersScreen({ navigation }) {
         setOrders(complexData);
         setMinorRepairs(minorData);
       } 
-      else if (globalTab === "calls" && isAdmin) { // 🔥 Звонки грузим только для Админов
+      else if (globalTab === "calls" && isAdmin) {
         if (typeof API.getCallRequests === 'function') {
           const data = await API.getCallRequests();
           setCallRequests(data || []);
@@ -128,7 +126,6 @@ export default function OrdersScreen({ navigation }) {
   };
 
   useEffect(() => {
-    // Безопасность: если менеджер как-то оказался на вкладке Звонков, кидаем его обратно
     if (!isAdmin && globalTab === "calls") {
       setGlobalTab("complex");
       return;
@@ -164,7 +161,6 @@ export default function OrdersScreen({ navigation }) {
     setStatusModal({ visible: true, id, type, currentStatus });
   };
 
-  // 🔥 МЕХАНИКА ЗАХВАТА МЕЛКОГО РЕМОНТА БРИГАДИРОМ
   const handleTakeMinor = async (id) => {
     try {
       setLoading(true);
@@ -309,68 +305,73 @@ export default function OrdersScreen({ navigation }) {
     );
   };
 
-  // 🔥 ОБНОВЛЕННАЯ КАРТОЧКА МЕЛКОГО РЕМОНТА
+  // 🔥 ОБНОВЛЕННАЯ И КЛИКАБЕЛЬНАЯ КАРТОЧКА МЕЛКОГО РЕМОНТА
   const renderMinorItem = ({ item }) => {
-    // Бригадир может действовать, если заказ новый ИЛИ он не в архиве/завершен
     const isActionable = isAdmin || (isManager && item.status !== 'done' && item.status !== 'cancel' && item.status !== 'archived');
 
     return (
-      <PeCard elevated={false} style={styles.orderCard}>
-        <View style={GLOBAL_STYLES.rowBetween}>
-          <View style={GLOBAL_STYLES.rowCenter}>
-            <Wrench color={COLORS.textMuted} size={16} style={{ marginRight: 6 }} />
-            <Text style={styles.orderId}>#{item.id}</Text>
-          </View>
-          <PeBadge status={item.status} />
-        </View>
-        <View style={styles.divider} />
-        
-        <View style={GLOBAL_STYLES.rowBetween}>
-          <View style={{ flex: 1 }}>
-            <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
-              <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
-              <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Неизвестно"}</Text>
-            </View>
-            
-            <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
-              <PhoneCall color={COLORS.primary} size={14} style={{ marginRight: 6 }} />
-              <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600' }]}>{item.client_phone || "—"}</Text>
-            </View>
-
-            <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
-              <HardHat color={item.brigade_name ? COLORS.warning : COLORS.primary} size={14} style={{ marginRight: 6 }} />
-              <Text style={[GLOBAL_STYLES.textSmall, { color: item.brigade_name ? COLORS.warning : COLORS.primary, fontWeight: '600' }]} numberOfLines={1}>
-                {item.brigade_name ? item.brigade_name : "БИРЖА (Свободно)"}
-              </Text>
-            </View>
-
+      <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate("OrderDetail", { order: item })}>
+        <PeCard elevated={false} style={styles.orderCard}>
+          <View style={GLOBAL_STYLES.rowBetween}>
             <View style={GLOBAL_STYLES.rowCenter}>
-              <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
-              <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
+              <Wrench color={COLORS.textMuted} size={16} style={{ marginRight: 6 }} />
+              <Text style={styles.orderId}>#{item.id}</Text>
+            </View>
+            <PeBadge status={item.status} />
+          </View>
+          <View style={styles.divider} />
+          
+          <View style={GLOBAL_STYLES.rowBetween}>
+            <View style={{ flex: 1 }}>
+              <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+                <User color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+                <Text style={GLOBAL_STYLES.textBody} numberOfLines={1}>{item.client_name || "Неизвестно"}</Text>
+              </View>
+              
+              <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+                <PhoneCall color={COLORS.primary} size={14} style={{ marginRight: 6 }} />
+                <Text style={[GLOBAL_STYLES.textBody, { color: COLORS.primary, fontWeight: '600' }]}>{item.client_phone || "—"}</Text>
+              </View>
+
+              <View style={[GLOBAL_STYLES.rowCenter, { marginBottom: 4 }]}>
+                <HardHat color={item.brigade_name ? COLORS.warning : COLORS.primary} size={14} style={{ marginRight: 6 }} />
+                <Text style={[GLOBAL_STYLES.textSmall, { color: item.brigade_name ? COLORS.warning : COLORS.primary, fontWeight: '600' }]} numberOfLines={1}>
+                  {item.brigade_name ? item.brigade_name : "БИРЖА (Свободно)"}
+                </Text>
+              </View>
+
+              <View style={GLOBAL_STYLES.rowCenter}>
+                <Calendar color={COLORS.textMuted} size={14} style={{ marginRight: 6 }} />
+                <Text style={GLOBAL_STYLES.textSmall}>{formatDate(item.created_at)}</Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={[styles.divider, { marginVertical: 12 }]} />
-        <Text style={[GLOBAL_STYLES.textBody, { fontStyle: 'italic', marginBottom: SIZES.small }]}>
-          "{item.description || item.details?.client_comment || "Нет описания"}"
-        </Text>
+          <View style={[styles.divider, { marginVertical: 12 }]} />
+          <Text style={[GLOBAL_STYLES.textBody, { fontStyle: 'italic', marginBottom: SIZES.small }]}>
+            "{item.description || item.details?.client_comment || "Нет описания"}"
+          </Text>
 
-        <View style={styles.footerRow}>
-          <View>
-            <Text style={GLOBAL_STYLES.textSmall}>Сумма вызова:</Text>
-            <Text style={styles.profitText}>{item.total_price ? formatKZT(item.total_price) : "Договорная"}</Text>
+          <View style={styles.footerRow}>
+            <View>
+              <Text style={GLOBAL_STYLES.textSmall}>Сумма вызова:</Text>
+              <Text style={styles.profitText}>{item.total_price ? formatKZT(item.total_price) : "Договорная"}</Text>
+            </View>
+
+            {isActionable ? (
+              <TouchableOpacity style={styles.actionButton} onPress={(e) => { e.stopPropagation(); openStatusModal(item.id, 'minor', item.status); }}>
+                <Text style={styles.actionText}>{item.status === 'new' ? 'Взять вызов' : 'Быстрый статус'}</Text>
+                <ChevronRight color={COLORS.primary} size={16} />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.actionButton}>
+                <Text style={styles.actionText}>Открыть</Text>
+                <ChevronRight color={COLORS.primary} size={16} />
+              </View>
+            )}
           </View>
-
-          {/* 🔥 КНОПКА ДЕЙСТВИЙ (Доступна и Шефу и Бригадиру) */}
-          {isActionable ? (
-            <TouchableOpacity style={styles.actionButton} onPress={() => openStatusModal(item.id, 'minor', item.status)}>
-              <Text style={styles.actionText}>{item.status === 'new' ? 'Взять вызов' : 'Статус'}</Text>
-              <ChevronRight color={COLORS.primary} size={16} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </PeCard>
+        </PeCard>
+      </TouchableOpacity>
     );
   };
 
@@ -445,7 +446,6 @@ export default function OrdersScreen({ navigation }) {
           <Text style={[styles.globalTabText, globalTab === 'minor' && styles.globalTabTextActive]}>Мелкий</Text>
         </TouchableOpacity>
         
-        {/* 🔥 СКРЫВАЕМ ВКЛАДКУ ЗВОНКОВ ОТ МЕНЕДЖЕРОВ */}
         {isAdmin && (
           <TouchableOpacity style={[styles.globalTab, globalTab === 'calls' && styles.globalTabActive]} onPress={() => setGlobalTab('calls')}>
             <PhoneCall color={globalTab === 'calls' ? COLORS.primary : COLORS.textMuted} size={16} />
@@ -464,7 +464,8 @@ export default function OrdersScreen({ navigation }) {
         />
       </View>
 
-      {globalTab === 'complex' && (
+      {/* 🔥 ФИЛЬТРЫ ТЕПЕРЬ ДОСТУПНЫ И ДЛЯ МЕЛКОГО РЕМОНТА */}
+      {(globalTab === 'complex' || globalTab === 'minor') && (
         <View style={styles.filtersContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScrollContent}>
             {STATUS_FILTERS.map((filter) => {
@@ -520,7 +521,6 @@ export default function OrdersScreen({ navigation }) {
         />
       )}
 
-      {/* 🪟 МОДАЛЬНОЕ ОКНО ИЗМЕНЕНИЯ СТАТУСА */}
       <Modal visible={statusModal.visible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContentSmall}>
@@ -528,19 +528,16 @@ export default function OrdersScreen({ navigation }) {
 
             {statusModal.type === 'minor' && (
               <>
-                {/* 🔥 СПЕЦКНОПКА: Взять вызов себе (Только для менеджеров, если статус новый) */}
                 {isManager && statusModal.currentStatus === 'new' && (
                   <TouchableOpacity style={styles.statusOption} onPress={() => handleTakeMinor(statusModal.id)}>
                     <Text style={[styles.statusText, {color: COLORS.primary, fontWeight: '800'}]}>🚀 Взять вызов себе</Text>
                   </TouchableOpacity>
                 )}
 
-                {/* Админ может вернуть статус в "Новый" */}
                 {isAdmin && (
                   <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('new')}><Text style={styles.statusText}>Новый (На биржу)</Text></TouchableOpacity>
                 )}
 
-                {/* Если заказ уже не новый или это админ, показываем стандартные статусы */}
                 {(!isManager || statusModal.currentStatus !== 'new') && (
                   <>
                     <TouchableOpacity style={styles.statusOption} onPress={() => applyStatus('processing')}><Text style={styles.statusText}>В работе</Text></TouchableOpacity>
@@ -569,9 +566,6 @@ export default function OrdersScreen({ navigation }) {
   );
 }
 
-// =============================================================================
-// 🎨 ВНУТРЕННИЕ СТИЛИ ЭКРАНА
-// =============================================================================
 const styles = StyleSheet.create({
   header: {
     flexDirection: "row",

@@ -1,13 +1,15 @@
 /**
  * @file src/components/ui.js
- * @description Mobile UI Kit (PROADMIN React Native v11.0.6 Enterprise).
- * ИСПРАВЛЕНО: PeInput оптимизирован для исключения лишних рендеров,
- * вызывающих закрытие клавиатуры на Android.
+ * @description Mobile UI Kit (PROADMIN React Native v15.0.1 Enterprise).
+ * 🔥 ИСПРАВЛЕНО (v15.0.1): Откат React.memo (Устранена ошибка TypeError: Component is not a function).
+ * 🔥 ДОБАВЛЕНО (v15.0.0): Глобальная тактильная отдача (Haptics) для всех кнопок PeButton.
+ * ИСПРАВЛЕНО: PeInput оптимизирован для исключения лишних рендеров.
  * ДОБАВЛЕНО: Black & Orange Design System (черный текст на оранжевых кнопках).
  * ДОБАВЛЕНО: Разделение цветов бейджей (new, processing, work) согласно Web CRM.
- * НИКАКИХ УДАЛЕНИЙ: Весь оригинальный код сохранен на 100%.
+ * НИКАКИХ УДАЛЕНИЙ: Весь оригинальный код сохранен на 100%. ПОЛНЫЙ КОД.
  *
  * @module Components
+ * @version 15.0.1 (Haptics & Stable Render Edition)
  */
 
 import React from "react";
@@ -20,10 +22,11 @@ import {
   StyleSheet,
   Platform,
 } from "react-native";
+import * as Haptics from 'expo-haptics'; // 🔥 Движок тактильной отдачи
 import { COLORS, SIZES, GLOBAL_STYLES, SHADOWS } from "../theme/theme";
 
 // =============================================================================
-// 🔘 1. PE-BUTTON (УМНАЯ КНОПКА)
+// 🔘 1. PE-BUTTON (УМНАЯ КНОПКА С HAPTICS)
 // =============================================================================
 export const PeButton = ({
   title,
@@ -54,7 +57,7 @@ export const PeButton = ({
   const getTextColor = () => {
     if (disabled) return COLORS.textMuted;
     if (variant === "secondary" || variant === "ghost") return COLORS.textMain;
-    if (variant === "primary") return COLORS.textInverse; // 🔥 Черный текст для агрессивного контраста на оранжевом
+    if (variant === "primary") return COLORS.textInverse; // Черный текст на оранжевом
     return "#ffffff";
   };
 
@@ -63,10 +66,25 @@ export const PeButton = ({
     return SHADOWS.glow; // Легкое оранжевое свечение
   };
 
+  // 🔥 Интеллектуальный обработчик нажатия с тактильной отдачей
+  const handlePress = (e) => {
+    if (Platform.OS !== 'web') {
+      // Для разрушительных/опасных действий (danger) даем вибрацию посильнее
+      if (variant === 'danger') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } else {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    }
+    if (onPress) {
+      onPress(e);
+    }
+  };
+
   return (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={onPress}
+      onPress={handlePress} // Используем умный обработчик
       disabled={disabled || loading}
       style={[
         styles.button,
@@ -94,10 +112,9 @@ export const PeButton = ({
 };
 
 // =============================================================================
-// ✍️ 2. PE-INPUT (ТЕКСТОВОЕ ПОЛЕ) - ИСПРАВЛЕНО
+// ✍️ 2. PE-INPUT (ТЕКСТОВОЕ ПОЛЕ)
 // =============================================================================
 export const PeInput = ({ label, icon, style, ...props }) => {
-  // Убрали useState(isFocused), чтобы избежать лишних перерисовок
   return (
     <View style={[styles.inputContainer, style]}>
       {label && <Text style={styles.inputLabel}>{label}</Text>}
@@ -175,6 +192,9 @@ export const PeBadge = ({ status, text, style }) => {
   );
 };
 
+// =============================================================================
+// 🎨 ВНУТРЕННИЕ СТИЛИ КОМПОНЕНТОВ
+// =============================================================================
 const styles = StyleSheet.create({
   button: {
     paddingVertical: 14,
