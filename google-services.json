@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "160662387501",
+    "project_id": "proadmin-fe050",
+    "storage_bucket": "proadmin-fe050.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:160662387501:android:ee1828bde996122439b1a4",
+        "android_client_info": {
+          "package_name": "kz.yeee.proelectric"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3z4ioUryTb7zYRDyP8qRrCNdMh9pKjaU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

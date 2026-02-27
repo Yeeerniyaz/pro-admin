@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PROELECTRIC",
+    "name": "Pro Admin",
     "slug": "pro-admin",
     "version": "11.1.5",
     "orientation": "portrait",
@@ -12,9 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#09090b"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "kz.yeee.proelectric"
@@ -25,9 +23,9 @@
         "backgroundColor": "#09090b"
       },
       "package": "kz.yeee.proelectric",
-      "permissions": [
-        "INTERNET"
-      ]
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true,
+      "permissions": ["INTERNET"]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,8 +35,6 @@
         "projectId": "08531f97-55f2-4ceb-bec8-0fedef683055"
       }
     },
-    "plugins": [
-      "expo-secure-store"
-    ]
+    "plugins": ["expo-secure-store"]
   }
 }

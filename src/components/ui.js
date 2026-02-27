@@ -1,15 +1,15 @@
 /**
  * @file src/components/ui.js
- * @description Mobile UI Kit (PROADMIN React Native v15.0.1 Enterprise).
- * 🔥 ИСПРАВЛЕНО (v15.0.1): Откат React.memo (Устранена ошибка TypeError: Component is not a function).
- * 🔥 ДОБАВЛЕНО (v15.0.0): Глобальная тактильная отдача (Haptics) для всех кнопок PeButton.
- * ИСПРАВЛЕНО: PeInput оптимизирован для исключения лишних рендеров.
+ * @description Mobile UI Kit (PROADMIN React Native v15.4.0 Enterprise).
+ * 🔥 ДОБАВЛЕНО (v15.4.0): Железобетонная тактильная отдача (Haptics) для всех кнопок PeButton.
+ * 🔥 ИСПРАВЛЕНО (v15.4.0): Откат экспериментальных оберток (Устранена ошибка Component is not a function).
+ * ИСПРАВЛЕНО: Для Android используется Heavy/Medium Impact с асинхронным вызовом (await) для пробития системы.
  * ДОБАВЛЕНО: Black & Orange Design System (черный текст на оранжевых кнопках).
  * ДОБАВЛЕНО: Разделение цветов бейджей (new, processing, work) согласно Web CRM.
  * НИКАКИХ УДАЛЕНИЙ: Весь оригинальный код сохранен на 100%. ПОЛНЫЙ КОД.
  *
  * @module Components
- * @version 15.0.1 (Haptics & Stable Render Edition)
+ * @version 15.4.0 (Stable Haptics Edition)
  */
 
 import React from "react";
@@ -66,16 +66,23 @@ export const PeButton = ({
     return SHADOWS.glow; // Легкое оранжевое свечение
   };
 
-  // 🔥 Интеллектуальный обработчик нажатия с тактильной отдачей
-  const handlePress = (e) => {
+  // 🔥 Железобетонный асинхронный обработчик нажатия с тактильной отдачей
+  const handlePress = async (e) => {
     if (Platform.OS !== 'web') {
-      // Для разрушительных/опасных действий (danger) даем вибрацию посильнее
-      if (variant === 'danger') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      } else {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      try {
+        // Для разрушительных/опасных действий (danger) даем вибрацию посильнее (Heavy)
+        if (variant === 'danger') {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        } else {
+          // Для обычных действий (primary, success) - средняя отдача (Medium)
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      } catch (err) {
+        console.log("Haptics Error:", err);
       }
     }
+    
+    // После вибрации вызываем основную функцию
     if (onPress) {
       onPress(e);
     }
@@ -84,7 +91,7 @@ export const PeButton = ({
   return (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={handlePress} // Используем умный обработчик
+      onPress={handlePress}
       disabled={disabled || loading}
       style={[
         styles.button,
