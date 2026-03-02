@@ -2,12 +2,12 @@
  * @file src/screens/OrderDetailScreen.js
  * @description Экран управления объектом (PROADMIN Mobile v17.0.0 Enterprise).
  * 🔥 ИСПРАВЛЕНО: Устранен баг "слепой зоны" статусов и разблокирована экономика для мелкого ремонта.
- * 🔥 ДОБАВЛЕНО: Генерация нередактируемых PDF документов (Договоры, Акты, Сметы).
+ * 🔥 ОБНОВЛЕНО: Возврат к идеальным DOCX документам + добавлен "Акт скрытых работ".
  * 🔥 ДОБАВЛЕНО: Блок реквизитов (ИИН, ФИО Директора) и раздельная Смета/BOM.
  * НИКАКИХ УДАЛЕНИЙ: Весь функционал, API-Фоллбэки и модальные окна сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module OrderDetailScreen
- * @version 17.0.0 (Full Cycle & PDF Edition)
+ * @version 17.1.0 (DOCX Edition)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -47,7 +47,7 @@ import {
   Save
 } from "lucide-react-native";
 
-// 🔥 ИМПОРТЫ ДЛЯ РАБОТЫ С ФАЙЛАМИ И PDF
+// 🔥 ИМПОРТЫ ДЛЯ РАБОТЫ С ФАЙЛАМИ
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
@@ -148,9 +148,9 @@ export default function OrderDetailScreen({ route, navigation }) {
           await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/take`, { method: 'POST', headers });
         }
       } else {
-        await API.takeOrder(order.id); 
+        await API.takeOrder(order.id);
       }
-      
+
       setOrder({ ...order, status: 'processing', brigade_name: user?.name });
       Alert.alert("Успех", "Объект успешно взят в работу!");
     } catch (e) {
@@ -168,16 +168,16 @@ export default function OrderDetailScreen({ route, navigation }) {
           await API.updateMinorRepairStatus(order.id, newStatus);
         } else {
           const headers = await API.getHeaders();
-          await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, { 
-            method: 'PATCH', 
-            headers, 
-            body: JSON.stringify({ status: newStatus }) 
+          await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: newStatus })
           });
         }
       } else {
         await API.updateOrderStatus(order.id, newStatus);
       }
-      
+
       setOrder({ ...order, status: newStatus });
       Alert.alert("Успех", "Статус объекта успешно обновлен!");
     } catch (e) {
@@ -204,10 +204,10 @@ export default function OrderDetailScreen({ route, navigation }) {
                   await API.updateMinorRepairStatus(order.id, 'done');
                 } else {
                   const headers = await API.getHeaders();
-                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, { 
-                    method: 'PATCH', 
-                    headers, 
-                    body: JSON.stringify({ status: 'done' }) 
+                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({ status: 'done' })
                   });
                 }
                 Alert.alert("Завершено!", "Вызов успешно закрыт.");
@@ -244,10 +244,10 @@ export default function OrderDetailScreen({ route, navigation }) {
                   await API.updateMinorRepairStatus(order.id, 'cancel');
                 } else {
                   const headers = await API.getHeaders();
-                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, { 
-                    method: 'PATCH', 
-                    headers, 
-                    body: JSON.stringify({ status: 'cancel' }) 
+                  await fetch(`https://erp.yeee.kz/api/minor-repairs/${order.id}/status`, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({ status: 'cancel' })
                   });
                 }
               } else {
@@ -313,12 +313,13 @@ export default function OrderDetailScreen({ route, navigation }) {
     } finally { setLoading(false); }
   };
 
-  // 🔥 МЕТОД СКАЧИВАНИЯ PDF-ДОКУМЕНТОВ
+  // 🔥 МЕТОД СКАЧИВАНИЯ ДОКУМЕНТОВ (ВЕРНУЛИ DOCX)
   const handleDownloadDoc = async (type, nameStr) => {
     try {
       setLoading(true);
       const headers = await API.getHeaders();
-      const fileUri = FileSystem.documentDirectory + `${nameStr}_Order_${order.id}.pdf`;
+      // 🔥 Возврат к .docx
+      const fileUri = FileSystem.documentDirectory + `${nameStr}_Order_${order.id}.docx`;
       const url = `https://erp.yeee.kz/api/orders/${order.id}/document/${type}`;
 
       const downloadRes = await FileSystem.downloadAsync(url, fileUri, {
@@ -333,8 +334,8 @@ export default function OrderDetailScreen({ route, navigation }) {
 
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(downloadRes.uri, {
-           mimeType: 'application/pdf',
-           dialogTitle: 'Отправить документ'
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // 🔥 Нативный MIME Type для Word
+          dialogTitle: 'Отправить документ'
         });
       } else {
         Alert.alert("Сохранено", `Файл загружен.`);
@@ -356,17 +357,17 @@ export default function OrderDetailScreen({ route, navigation }) {
           method: 'POST',
           headers,
           body: JSON.stringify({ amount: newExpense.amount, category: newExpense.category, comment: newExpense.comment })
-        }).catch(() => {});
-        
+        }).catch(() => { });
+
         const updatedExpenses = [...(financials.expenses || []), { ...newExpense, amount: parseFloat(newExpense.amount) }];
         const updatedTotalExp = (financials.total_expenses || 0) + parseFloat(newExpense.amount);
-        
-        setOrder({ 
-          ...order, 
-          details: { 
-            ...order.details, 
-            financials: { ...financials, expenses: updatedExpenses, total_expenses: updatedTotalExp } 
-          } 
+
+        setOrder({
+          ...order,
+          details: {
+            ...order.details,
+            financials: { ...financials, expenses: updatedExpenses, total_expenses: updatedTotalExp }
+          }
         });
       } else {
         const res = await API.addOrderExpense(order.id, newExpense.amount, newExpense.category, newExpense.comment);
@@ -390,18 +391,18 @@ export default function OrderDetailScreen({ route, navigation }) {
           method: 'PATCH',
           headers,
           body: JSON.stringify({ price: newPrice })
-        }).catch(() => {});
+        }).catch(() => { });
 
-        setOrder({ 
-          ...order, 
-          total_price: newPrice, 
-          details: { 
-            ...order.details, 
-            financials: { ...financials, final_price: newPrice } 
-          } 
+        setOrder({
+          ...order,
+          total_price: newPrice,
+          details: {
+            ...order.details,
+            financials: { ...financials, final_price: newPrice }
+          }
         });
       } else {
-        const res = await API.updateOrderPrice(order.id, newPrice); 
+        const res = await API.updateOrderPrice(order.id, newPrice);
         setOrder({ ...order, total_price: newPrice, details: { ...order.details, financials: res.financials } });
       }
       setPriceModalVisible(false);
@@ -425,7 +426,7 @@ export default function OrderDetailScreen({ route, navigation }) {
       } else {
         await API.assignBrigade(order.id, selectedBrigadeId);
       }
-      
+
       const assignedB = brigades.find(b => b.id.toString() === selectedBrigadeId.toString());
       setOrder({
         ...order,
@@ -485,7 +486,7 @@ export default function OrderDetailScreen({ route, navigation }) {
           {/* 👤 ИНФОРМАЦИЯ О КЛИЕНТЕ И РЕКВИЗИТЫ */}
           <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
             <Text style={styles.sectionTitle}>Информация и Реквизиты</Text>
-            
+
             <View style={styles.infoRow}>
               <User color={COLORS.primary} size={18} style={{ marginRight: 8 }} />
               <Text style={GLOBAL_STYLES.textBody}>{order.client_name || "Не указано"}</Text>
@@ -543,15 +544,16 @@ export default function OrderDetailScreen({ route, navigation }) {
             )}
           </PeCard>
 
-          {/* 📄 ГЕНЕРАЦИЯ ДОКУМЕНТОВ (PDF) */}
+          {/* 📄 ГЕНЕРАЦИЯ ДОКУМЕНТОВ (DOCX) */}
           {!isMinor && (
             <PeCard elevated={false} style={{ marginBottom: SIZES.medium, backgroundColor: 'rgba(255, 107, 0, 0.05)', borderColor: COLORS.primary, borderWidth: 1 }}>
-              <Text style={[styles.sectionTitle, { color: COLORS.primary }]}>Документы (PDF)</Text>
+              <Text style={[styles.sectionTitle, { color: COLORS.primary }]}>Документы (Word)</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' }}>
                 <PeButton title="Договор" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('contract', 'Dogovor')} style={{ flexBasis: '48%' }} loading={loading} />
                 <PeButton title="Смета" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('estimate', 'Smeta')} style={{ flexBasis: '48%' }} loading={loading} />
                 <PeButton title="BOM (Матер.)" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('bom', 'BOM')} style={{ flexBasis: '48%' }} loading={loading} />
-                <PeButton title="Акт приемки" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('acceptance', 'Akt')} style={{ flexBasis: '48%' }} loading={loading} />
+                <PeButton title="Акт скрытых" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('hidden_works', 'Akt_Skrytyh')} style={{ flexBasis: '48%' }} loading={loading} />
+                <PeButton title="Акт приемки объекта" variant="secondary" icon={<FileText size={16} color={COLORS.textMain} />} onPress={() => handleDownloadDoc('acceptance', 'Akt_Priemki')} style={{ flexBasis: '100%' }} loading={loading} />
               </View>
             </PeCard>
           )}
@@ -560,49 +562,49 @@ export default function OrderDetailScreen({ route, navigation }) {
           {!isMinor && area > 0 && (
             <PeCard elevated={false} style={{ marginBottom: SIZES.medium }}>
               <Text style={styles.sectionTitle}>Технические данные</Text>
-              
+
               <View style={styles.techRow}>
-                <Settings color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Settings color={COLORS.textMuted} size={16} style={{ marginRight: 8 }} />
                 <Text style={GLOBAL_STYLES.textMuted}>Метод расчета:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontStyle: 'italic'}]}>{calcMode}</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { flex: 1, textAlign: 'right', fontStyle: 'italic' }]}>{calcMode}</Text>
               </View>
 
               <View style={styles.techRow}>
-                <Home color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Home color={COLORS.textMuted} size={16} style={{ marginRight: 8 }} />
                 <Text style={GLOBAL_STYLES.textMuted}>Площадь / Комнаты:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{area} м² / {rooms}</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { flex: 1, textAlign: 'right' }]}>{area} м² / {rooms}</Text>
               </View>
 
               <View style={styles.techRow}>
-                <Layers color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <Layers color={COLORS.textMuted} size={16} style={{ marginRight: 8 }} />
                 <Text style={GLOBAL_STYLES.textMuted}>Стены:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right'}]}>{wallType}</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { flex: 1, textAlign: 'right' }]}>{wallType}</Text>
               </View>
 
               <View style={styles.techRow}>
-                <MapPin color={COLORS.textMuted} size={16} style={{marginRight: 8}}/>
+                <MapPin color={COLORS.textMuted} size={16} style={{ marginRight: 8 }} />
                 <Text style={GLOBAL_STYLES.textMuted}>Тариф:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', fontWeight: '600'}]}>{tariffName}</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { flex: 1, textAlign: 'right', fontWeight: '600' }]}>{tariffName}</Text>
               </View>
 
               <View style={styles.techRow}>
-                <Settings color={COLORS.primary} size={16} style={{marginRight: 8}}/>
+                <Settings color={COLORS.primary} size={16} style={{ marginRight: 8 }} />
                 <Text style={GLOBAL_STYLES.textMuted}>Умный дом:</Text>
-                <Text style={[GLOBAL_STYLES.textBody, {flex: 1, textAlign: 'right', color: isSmartHome === 'Да' ? COLORS.primary : COLORS.textMain}]}>{isSmartHome}</Text>
+                <Text style={[GLOBAL_STYLES.textBody, { flex: 1, textAlign: 'right', color: isSmartHome === 'Да' ? COLORS.primary : COLORS.textMain }]}>{isSmartHome}</Text>
               </View>
 
               {appliedDiscount > 0 && (
                 <View style={[styles.techRow, { marginTop: SIZES.small, paddingTop: SIZES.small, borderTopWidth: 1, borderTopColor: COLORS.border }]}>
-                  <Tag color={COLORS.warning} size={16} style={{marginRight: 8}}/>
-                  <Text style={{color: COLORS.warning, fontWeight: '600'}}>Применена скидка:</Text>
-                  <Text style={{flex: 1, textAlign: 'right', color: COLORS.warning, fontWeight: '700'}}>-{formatKZT(appliedDiscount)}</Text>
+                  <Tag color={COLORS.warning} size={16} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.warning, fontWeight: '600' }}>Применена скидка:</Text>
+                  <Text style={{ flex: 1, textAlign: 'right', color: COLORS.warning, fontWeight: '700' }}>-{formatKZT(appliedDiscount)}</Text>
                 </View>
               )}
 
               {isMinThresholdApplied && (
                 <View style={[styles.techRow, { marginTop: SIZES.small }]}>
-                  <ShieldAlert color={COLORS.danger} size={16} style={{marginRight: 8}}/>
-                  <Text style={{color: COLORS.danger, flex: 1, fontSize: 12}}>Сработал блокиратор минимальной рентабельности</Text>
+                  <ShieldAlert color={COLORS.danger} size={16} style={{ marginRight: 8 }} />
+                  <Text style={{ color: COLORS.danger, flex: 1, fontSize: 12 }}>Сработал блокиратор минимальной рентабельности</Text>
                 </View>
               )}
             </PeCard>
@@ -611,7 +613,7 @@ export default function OrderDetailScreen({ route, navigation }) {
           {/* 🔥 СИСТЕМНЫЕ ДЕЙСТВИЯ (ВОРОНКА СТАТУСОВ ДЛЯ БРИГАДИРА) */}
           {!isDone && (
             <View style={{ marginBottom: SIZES.medium }}>
-              
+
               {isManager && order.status === 'new' && (
                 <PeButton
                   title="ВЗЯТЬ В РАБОТУ"
@@ -644,7 +646,7 @@ export default function OrderDetailScreen({ route, navigation }) {
                   style={{ marginBottom: SIZES.base }}
                 />
               )}
-              
+
               {isAdmin && (
                 <PeButton
                   title="ОТМЕНИТЬ ОБЪЕКТ (В ОТКАЗ)"
@@ -674,7 +676,7 @@ export default function OrderDetailScreen({ route, navigation }) {
                 <Text style={GLOBAL_STYLES.textBody}>{formatKZT(calcBase)}</Text>
               </View>
             )}
-            
+
             <View style={[styles.finRow, { marginTop: 8 }]}>
               <Text style={GLOBAL_STYLES.textMuted}>{isMinor ? "Сумма вызова:" : "Договорная цена:"}</Text>
               <Text style={[GLOBAL_STYLES.textBody, { fontWeight: '700' }]}>
@@ -808,14 +810,14 @@ export default function OrderDetailScreen({ route, navigation }) {
 
           {/* 💾 ГЛОБАЛЬНАЯ КНОПКА СОХРАНЕНИЯ ЗАМЕРА */}
           {!isDone && !isMinor && (
-             <PeButton
-               title="СОХРАНИТЬ РЕЗУЛЬТАТЫ ЗАМЕРА"
-               variant="primary"
-               icon={<Save color={COLORS.textInverse} size={20}/>}
-               onPress={handleSaveMeasurement}
-               loading={loading}
-               style={{ marginBottom: 40 }}
-             />
+            <PeButton
+              title="СОХРАНИТЬ РЕЗУЛЬТАТЫ ЗАМЕРА"
+              variant="primary"
+              icon={<Save color={COLORS.textInverse} size={20} />}
+              onPress={handleSaveMeasurement}
+              loading={loading}
+              style={{ marginBottom: 40 }}
+            />
           )}
 
         </ScrollView>
