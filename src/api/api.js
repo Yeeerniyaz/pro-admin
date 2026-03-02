@@ -1,14 +1,14 @@
 /**
  * @file src/api/api.js
- * @description Слой доступа к данным API (Mobile Client v16.1.0 Enterprise).
- * Обеспечивает строгую типизацию запросов к REST API сервера ProElectric.
- * 🔥 ДОБАВЛЕНО (v16.1.0): Интеграция с DocumentService (генерация DOCX).
- * 🔥 ДОБАВЛЕНО (v16.1.0): Умное сохранение замеров (Смета + BOM + Реквизиты).
- * 🔥 ИСПРАВЛЕНО: Военное шифрование сессии через expo-secure-store.
- * НИКАКИХ УДАЛЕНИЙ: Все роуты сохранены на 100%. ПОЛНЫЙ КОД.
+ * @description Единый слой доступа к данным API (Mobile Client v17.0.0 Enterprise).
+ * 🔥 АРХИТЕКТУРНОЕ ОБНОВЛЕНИЕ (v17.0.0): Полная синхронизация с новыми роутами бэкенда.
+ * - Убраны устаревшие префиксы `/mobile/`.
+ * - Роуты аналитики переведены на `/analytics`.
+ * - Добавлены методы для загрузки Настроек и Прайс-листа (Фикс ошибки pricelist.map).
+ * - Добавлены методы для создания Мелкого ремонта и Запросов звонков.
+ * - Интегрировано военное шифрование сессии (expo-secure-store).
  *
  * @module API
- * @version 16.1.0 (Documents & Measurement Edition)
  */
 
 import * as SecureStore from 'expo-secure-store';
@@ -41,7 +41,7 @@ class API {
     const cookie = await SecureStore.getItemAsync('session_cookie');
     return {
       'Content-Type': 'application/json',
-      'Accept': 'application/json', // Гарантируем, что сервер отдаст JSON
+      'Accept': 'application/json',
       ...(cookie ? { 'Cookie': cookie } : {})
     };
   }
@@ -49,20 +49,18 @@ class API {
   static async handleResponse(response) {
     const setCookie = response.headers.get('set-cookie');
     if (setCookie) {
-      // Сохраняем первую куку (Обычно это proelectric.sid) в зашифрованный сейф
       const sessionId = setCookie.split(';')[0];
       await SecureStore.setItemAsync('session_cookie', sessionId);
     }
 
-    const text = await response.text(); // Сначала читаем сырой текст
+    const text = await response.text();
     let data;
 
     try {
       data = text ? JSON.parse(text) : {};
     } catch (e) {
-      // 🛡️ АРХИТЕКТУРНЫЙ ПАТЧ: Если пришел HTML (ошибка 502/404), мы покажем статус
       console.error('[API Parse Error] RAW Response:', text.substring(0, 300));
-      throw new Error(`Сбой ответа сервера (${response.status}). Ожидался JSON, но получен HTML. Проверьте роут или HTTPS.`);
+      throw new Error(`Сбой ответа сервера (${response.status}). Ожидался JSON, но получен HTML. Ссылка не актуальна.`);
     }
 
     if (!response.ok) {
@@ -128,19 +126,17 @@ class API {
   }
 
   // ==========================================
-  // 📊 DASHBOARD & ANALYTICS
+  // 📊 DASHBOARD & ANALYTICS (ОБНОВЛЕНО!)
   // ==========================================
 
   static async getDashboardStats(startDate, endDate) {
-    let url = `${BASE_URL}/mobile/dashboard/stats`;
+    let url = `${BASE_URL}/analytics/mobile/dashboard/stats` // 🔥 Исправлено с /mobile/dashboard/stats
     const params = new URLSearchParams();
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
     if (params.toString()) url += `?${params.toString()}`;
 
-    const response = await fetchWithTimeout(url, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(url, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -151,9 +147,7 @@ class API {
     if (endDate) params.append('endDate', endDate);
     if (params.toString()) url += `?${params.toString()}`;
 
-    const response = await fetchWithTimeout(url, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(url, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -164,32 +158,28 @@ class API {
     if (endDate) params.append('endDate', endDate);
     if (params.toString()) url += `?${params.toString()}`;
 
-    const response = await fetchWithTimeout(url, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(url, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
   // ==========================================
-  // 📦 ORDERS MANAGEMENT (Комплексный ремонт)
+  // 📦 ORDERS MANAGEMENT (ОБНОВЛЕНО!)
   // ==========================================
 
+  // 🔥 Обновлено: Запрашиваем склеенный список из модуля Аналитики (Крупные + Мелкие)
+  // 🔥 Обновлено: Запрашиваем склеенный список из модуля Аналитики (Крупные + Мелкие)
   static async getOrders(status = 'all', limit = 100, offset = 0) {
-    let url = `${BASE_URL}/mobile/orders?limit=${limit}&offset=${offset}`;
+    let url = `${BASE_URL}/analytics/mobile/orders?limit=${limit}&offset=${offset}`;
     if (status !== 'all') {
       url += `&status=${status}`;
     }
 
-    const response = await fetchWithTimeout(url, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(url, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
   static async getOrderById(id) {
-    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -210,7 +200,6 @@ class API {
     return this.handleResponse(response);
   }
 
-  // 🔥 НОВОЕ: Сохранение комплексного замера (ИИН, Директор, Смета, BOM)
   static async saveMeasurementData(id, payload) {
     const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/measurement`, {
       method: 'POST',
@@ -218,21 +207,6 @@ class API {
       body: JSON.stringify(payload)
     });
     return this.handleResponse(response);
-  }
-
-  // 🔥 НОВОЕ: Скачивание документов (Договор, Смета, Акт)
-  static async downloadDocument(id, type) {
-    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/document/${type}`, {
-      method: 'GET',
-      headers: await this.getHeaders()
-    });
-    
-    // ВАЖНО: Документы - это бинарные файлы (Blob/Buffer), а не JSON!
-    // Поэтому мы не передаем их в handleResponse, а возвращаем сырой ответ
-    if (!response.ok) {
-      throw new Error(`Ошибка генерации документа: ${response.status}`);
-    }
-    return response;
   }
 
   static async updateOrderBOM(id, newBomArray) {
@@ -306,15 +280,18 @@ class API {
   }
 
   static async getOrderPhotos(id) {
-    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/photos`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/photos`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
   // ==========================================
-  // 🔧 MINOR REPAIRS (МЕЛКИЙ РЕМОНТ СПЕЦИФИКА)
+  // 🔧 MINOR REPAIRS (МЕЛКИЙ РЕМОНТ)
   // ==========================================
+
+  static async getMinorRepairs() {
+    const response = await fetchWithTimeout(`${BASE_URL}/minor-repairs`, { headers: await this.getHeaders() });
+    return this.handleResponse(response);
+  }
 
   static async takeMinorRepair(id) {
     const response = await fetchWithTimeout(`${BASE_URL}/minor-repairs/${id}/take`, {
@@ -333,14 +310,21 @@ class API {
     return this.handleResponse(response);
   }
 
+  static async createMinorRepair(data) {
+    const response = await fetchWithTimeout(`${BASE_URL}/minor-repairs`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return this.handleResponse(response);
+  }
+
   // ==========================================
   // 📞 CALL REQUESTS (ЗВОНКИ)
   // ==========================================
 
   static async getCallRequests(limit = 100, offset = 0) {
-    const response = await fetchWithTimeout(`${BASE_URL}/call-requests?limit=${limit}&offset=${offset}`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/call-requests?limit=${limit}&offset=${offset}`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -353,14 +337,35 @@ class API {
     return this.handleResponse(response);
   }
 
+  static async createCallRequest(data) {
+    const response = await fetchWithTimeout(`${BASE_URL}/call-requests`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return this.handleResponse(response);
+  }
+
+  // ==========================================
+  // ⚙️ СИСТЕМНЫЕ НАСТРОЙКИ И ПРАЙС-ЛИСТ (NEW!)
+  // ==========================================
+
+  static async getSettings() {
+    const response = await fetchWithTimeout(`${BASE_URL}/settings`, { headers: await this.getHeaders() });
+    return this.handleResponse(response);
+  }
+
+  static async getPricelist() {
+    const response = await fetchWithTimeout(`${BASE_URL}/settings/pricelist`, { headers: await this.getHeaders() });
+    return this.handleResponse(response);
+  }
+
   // ==========================================
   // 👷 BRIGADES MANAGEMENT
   // ==========================================
 
   static async getBrigades() {
-    const response = await fetchWithTimeout(`${BASE_URL}/brigades`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/brigades`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -397,9 +402,7 @@ class API {
   static async getUsers(search = "", limit = 100, offset = 0) {
     let url = `${BASE_URL}/users?limit=${limit}&offset=${offset}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
-    const response = await fetchWithTimeout(url, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(url, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -413,7 +416,7 @@ class API {
   }
 
   static async sendBroadcast(text, imageUrl, targetRole) {
-    const response = await fetchWithTimeout(`${BASE_URL}/broadcast`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/system/broadcast`, {
       method: 'POST',
       headers: await this.getHeaders(),
       body: JSON.stringify({ text, imageUrl, targetRole })
@@ -426,23 +429,17 @@ class API {
   // ==========================================
 
   static async getFinanceAccounts() {
-    const response = await fetchWithTimeout(`${BASE_URL}/finance/accounts`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/finance/accounts`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
   static async getFinanceTransactions(limit = 100) {
-    const response = await fetchWithTimeout(`${BASE_URL}/finance/transactions?limit=${limit}`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/finance/transactions?limit=${limit}`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
   static async exportFinanceTransactions() {
-    const response = await fetchWithTimeout(`${BASE_URL}/finance/export`, {
-      headers: await this.getHeaders()
-    });
+    const response = await fetchWithTimeout(`${BASE_URL}/finance/export`, { headers: await this.getHeaders() });
     return this.handleResponse(response);
   }
 
@@ -463,6 +460,7 @@ class API {
     });
     return this.handleResponse(response);
   }
+
 }
 
 export default API;
