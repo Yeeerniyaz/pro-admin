@@ -1,20 +1,17 @@
 /**
  * @file src/api/api.js
- * @description Слой доступа к данным API (Mobile Client v16.0.0 Enterprise).
+ * @description Слой доступа к данным API (Mobile Client v16.1.0 Enterprise).
  * Обеспечивает строгую типизацию запросов к REST API сервера ProElectric.
- * 🔥 ДОБАВЛЕНО (v16.0.0): Военное шифрование сессии. AsyncStorage заменен на expo-secure-store.
- * 🔥 ИСПРАВЛЕНО: Усилена безопасность токенов авторизации (cookie хранятся в Keystore/Keychain).
- * ДОБАВЛЕНО: API для Запросов Звонков (getCallRequests, updateCallRequestStatus).
- * ДОБАВЛЕНО: Регистрация Push-токенов (registerPushToken).
- * ДОБАВЛЕНО: Маршрутизация на /api/mobile/orders для получения склеенных лидов.
- * ДОБАВЛЕНО: API для Мелкого ремонта (takeMinorRepair, updateMinorRepairStatus).
+ * 🔥 ДОБАВЛЕНО (v16.1.0): Интеграция с DocumentService (генерация DOCX).
+ * 🔥 ДОБАВЛЕНО (v16.1.0): Умное сохранение замеров (Смета + BOM + Реквизиты).
+ * 🔥 ИСПРАВЛЕНО: Военное шифрование сессии через expo-secure-store.
  * НИКАКИХ УДАЛЕНИЙ: Все роуты сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module API
- * @version 16.0.0 (Secure Vault Edition)
+ * @version 16.1.0 (Documents & Measurement Edition)
  */
 
-import * as SecureStore from 'expo-secure-store'; // 🔥 Военное шифрование вместо AsyncStorage
+import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 const BASE_URL = 'https://erp.yeee.kz/api';
@@ -63,7 +60,7 @@ class API {
     try {
       data = text ? JSON.parse(text) : {};
     } catch (e) {
-      // 🛡️ АРХИТЕКТУРНЫЙ ПАТЧ: Если пришел HTML (ошибка 502/404), мы покажем статус!
+      // 🛡️ АРХИТЕКТУРНЫЙ ПАТЧ: Если пришел HTML (ошибка 502/404), мы покажем статус
       console.error('[API Parse Error] RAW Response:', text.substring(0, 300));
       throw new Error(`Сбой ответа сервера (${response.status}). Ожидался JSON, но получен HTML. Проверьте роут или HTTPS.`);
     }
@@ -82,7 +79,6 @@ class API {
     const response = await fetchWithTimeout(`${BASE_URL}/auth/login`, {
       method: 'POST',
       headers: await this.getHeaders(),
-      // Бэкенд ждет переменную login, а не username
       body: JSON.stringify({ login: username, password }),
     });
     return this.handleResponse(response);
@@ -113,7 +109,6 @@ class API {
     return this.handleResponse(response);
   }
 
-  // 🔥 Удаление куки из защищенного хранилища
   static async logout() {
     const response = await fetchWithTimeout(`${BASE_URL}/auth/logout`, {
       method: 'POST',
@@ -213,6 +208,31 @@ class API {
       body: JSON.stringify({ address, admin_comment })
     });
     return this.handleResponse(response);
+  }
+
+  // 🔥 НОВОЕ: Сохранение комплексного замера (ИИН, Директор, Смета, BOM)
+  static async saveMeasurementData(id, payload) {
+    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/measurement`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return this.handleResponse(response);
+  }
+
+  // 🔥 НОВОЕ: Скачивание документов (Договор, Смета, Акт)
+  static async downloadDocument(id, type) {
+    const response = await fetchWithTimeout(`${BASE_URL}/orders/${id}/document/${type}`, {
+      method: 'GET',
+      headers: await this.getHeaders()
+    });
+    
+    // ВАЖНО: Документы - это бинарные файлы (Blob/Buffer), а не JSON!
+    // Поэтому мы не передаем их в handleResponse, а возвращаем сырой ответ
+    if (!response.ok) {
+      throw new Error(`Ошибка генерации документа: ${response.status}`);
+    }
+    return response;
   }
 
   static async updateOrderBOM(id, newBomArray) {
@@ -443,7 +463,6 @@ class API {
     });
     return this.handleResponse(response);
   }
-
 }
 
 export default API;
