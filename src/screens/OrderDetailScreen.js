@@ -1,13 +1,14 @@
 /**
  * @file src/screens/OrderDetailScreen.js
- * @description Экран управления объектом (PROADMIN Mobile v17.2.0 Enterprise).
+ * @description Экран управления объектом (PROADMIN Mobile v17.2.1 Enterprise).
  * 🔥 ИСПРАВЛЕНО: Устранен баг "слепой зоны" статусов и разблокирована экономика для мелкого ремонта.
  * 🔥 ОБНОВЛЕНО: Возврат к идеальным DOCX документам + добавлен "Акт скрытых работ".
  * 🔥 НОВАЯ ФИЧА: Прямое скачивание в папку "Загрузки" на телефоне (Android SAF / iOS Save to Files).
+ * 🔥 ИСПРАВЛЕНО: Ошибка Expo FileSystem API (переход на legacy API для поддержки downloadAsync).
  * НИКАКИХ УДАЛЕНИЙ: Весь функционал, API-Фоллбэки и модальные окна сохранены на 100%. ПОЛНЫЙ КОД.
  *
  * @module OrderDetailScreen
- * @version 17.2.0 (Direct Download Edition)
+ * @version 17.2.1 (Direct Download & Expo 52+ Fix)
  */
 
 import React, { useState, useEffect, useContext } from "react";
@@ -47,8 +48,8 @@ import {
   Save
 } from "lucide-react-native";
 
-// 🔥 ИМПОРТЫ ДЛЯ ПРЯМОГО СКАЧИВАНИЯ ФАЙЛОВ
-import * as FileSystem from 'expo-file-system';
+// 🔥 ИМПОРТЫ ДЛЯ ПРЯМОГО СКАЧИВАНИЯ ФАЙЛОВ (ИСПОЛЬЗУЕМ LEGACY ДЛЯ СОВМЕСТИМОСТИ С EXPO)
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 import API from "../api/api";
