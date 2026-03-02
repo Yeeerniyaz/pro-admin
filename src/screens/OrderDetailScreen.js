@@ -266,7 +266,6 @@ export default function OrderDetailScreen({ route, navigation }) {
     );
   };
 
-  // 🔥 МЕТОД СОХРАНЕНИЯ КОМПЛЕКСНОГО ЗАМЕРА
   const handleSaveMeasurement = async () => {
     try {
       setLoading(true);
@@ -335,14 +334,14 @@ export default function OrderDetailScreen({ route, navigation }) {
 
       // 2. Логика сохранения в зависимости от ОС (Android или iOS)
       if (Platform.OS === 'android') {
-        // 🔥 ANDROID: Используем StorageAccessFramework для сохранения в видимую папку "Загрузки/Документы"
+        // 🔥 ANDROID: Используем StorageAccessFramework для прямого сохранения в видимую папку
         const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
         
         if (permissions.granted) {
-          // Читаем скачанный временный файл в формате base64
+          // Читаем скачанный временный файл
           const base64 = await FileSystem.readAsStringAsync(downloadRes.uri, { encoding: FileSystem.EncodingType.Base64 });
           
-          // Создаем пустой файл в папке, которую выбрал пользователь
+          // Создаем файл в выбранной папке (например, в Загрузках)
           const savedUri = await FileSystem.StorageAccessFramework.createFileAsync(
             permissions.directoryUri, 
             fileName, 
@@ -351,17 +350,17 @@ export default function OrderDetailScreen({ route, navigation }) {
           
           // Записываем в него содержимое
           await FileSystem.writeAsStringAsync(savedUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-          Alert.alert("Успех", `Документ успешно сохранен в выбранную папку!`);
+          Alert.alert("Успех", `Документ успешно сохранен в выбранную папку! Вы можете найти его через диспетчер файлов.`);
         } else {
-          Alert.alert("Отмена", "Вы не дали разрешение на сохранение файла.");
+          Alert.alert("Отмена", "Разрешение на сохранение файла не получено.");
         }
       } else {
-        // 🍏 iOS: На iPhone нельзя писать напрямую в папки. Открываем системное меню Sharing,
-        // где пользователь должен сам нажать "Сохранить в Файлы" (Save to Files).
+        // 🍏 iOS: На iPhone система блокирует прямую запись. Открываем системное меню,
+        // где пользователь нажимает "Сохранить в Файлы" (Save to Files).
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(downloadRes.uri, {
              mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-             dialogTitle: 'Выберите "Сохранить в Файлы"'
+             dialogTitle: 'Выберите "Сохранить в Файлы" (Save to Files)'
           });
         } else {
           Alert.alert("Сохранено", `Файл загружен во внутреннюю память.`);
